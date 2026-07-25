@@ -427,6 +427,34 @@ h2 {
   font-size: 25px;
 }
 
+.sd-only-button {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 14px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid #625e57;
+  cursor: pointer;
+  font: 700 11px "Courier New", monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.sd-only-button:hover:not(:disabled) {
+  color: #fff;
+  background: #25211d;
+  border-color: var(--orange);
+}
+
+.sd-only-button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
 .privacy-note {
   margin: 18px 0 0;
   color: var(--muted);

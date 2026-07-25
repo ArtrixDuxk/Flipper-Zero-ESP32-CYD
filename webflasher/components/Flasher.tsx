@@ -32,6 +32,10 @@ type SdResource = {
   sha256: string;
 };
 
+type DownloadedSdResource = SdResource & {
+  data: Uint8Array;
+};
+
 const DISPLAY_NAMES: Record<string, string> = {
   bootloader: "Bootloader",
   "partition-table": "Partition table",
@@ -100,6 +104,50 @@ async function connectRpcWithRetry(
     : new Error("Could not reconnect to the installed CYD firmware");
 }
 
+async function requestCydPort() {
+  const serial = (
+    navigator as Navigator & {
+      serial: {
+        requestPort(options?: {
+          filters?: {usbVendorId?: number; usbProductId?: number}[];
+        }): Promise<CydSerialPort>;
+      };
+    }
+  ).serial;
+
+  return serial.requestPort({
+    filters: [{usbVendorId: 0x1a86, usbProductId: 0x7523}],
+  });
+}
+
+async function downloadSdResources() {
+  return Promise.all(
+    SD_RESOURCES.map(async (resource): Promise<DownloadedSdResource> => {
+      const resourceUrl = `${BASE_PATH}/sdcard/${resource.path}`;
+      const response = await fetch(resourceUrl, {cache: "no-store"});
+      if (!response.ok) {
+        throw new Error(
+          `Failed to download SD resource ${resource.path} (${response.status})`,
+        );
+      }
+
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength !== resource.size) {
+        throw new Error(
+          `${resource.path}: invalid size (${bytes.byteLength}/${resource.size})`,
+        );
+      }
+
+      const digest = await sha256Hex(bytes);
+      if (digest !== resource.sha256) {
+        throw new Error(`${resource.path}: invalid SHA-256 checksum`);
+      }
+
+      return {...resource, data: bytes};
+    }),
+  );
+}
+
 export default function Flasher() {
   const [state, setState] = useState<FlashState>("idle");
   const [progress, setProgress] = useState(0);
@@ -127,6 +175,61 @@ export default function Flasher() {
     setLogs((current) => [...current.slice(-39), message]);
   }
 
+  async function provisionSd(
+    rpc: CydRpcClient,
+    resources: DownloadedSdResource[],
+    baseProgress: number,
+    copyProgress: number,
+    checksumProgress: number,
+  ) {
+    const storage = await rpc.storageInfo();
+    if (storage.free < sdcardManifest.totalSize + SD_FREE_SPACE_MARGIN) {
+      throw new Error(
+        `Not enough free space on the SD card (${storage.free} bytes available)`,
+      );
+    }
+    log(`SD card ready (${storage.free} bytes free of ${storage.total} bytes)`);
+
+    setState("resources");
+    setDetail(`Creating folders and copying ${SD_RESOURCES.length} required files`);
+    for (const directory of sdcardManifest.directories) {
+      await rpc.mkdir(`${sdcardManifest.targetRoot}/${directory}`);
+    }
+
+    let completedResourceBytes = 0;
+    for (const resource of resources) {
+      const devicePath = `${sdcardManifest.targetRoot}/${resource.path}`;
+      await rpc.writeFile(devicePath, resource.data, (written) => {
+        const ratio =
+          (completedResourceBytes + written) / sdcardManifest.totalSize;
+        setProgress(
+          baseProgress + Math.min(copyProgress, Math.round(ratio * copyProgress)),
+        );
+      });
+      completedResourceBytes += resource.size;
+      log(`Copied ${devicePath}`);
+    }
+
+    setProgress(baseProgress + copyProgress);
+    setState("verifying");
+    setDetail("Checking every installed file against its MD5 checksum");
+    for (let index = 0; index < resources.length; index += 1) {
+      const resource = resources[index];
+      const devicePath = `${sdcardManifest.targetRoot}/${resource.path}`;
+      const deviceMd5 = (await rpc.md5(devicePath)).toLowerCase();
+      if (deviceMd5 !== resource.md5) {
+        throw new Error(
+          `${resource.path}: SD verification failed (${deviceMd5 || "no checksum"})`,
+        );
+      }
+      setProgress(
+        baseProgress +
+          copyProgress +
+          Math.round(((index + 1) / resources.length) * checksumProgress),
+      );
+    }
+  }
+
   async function install() {
     if (!webSerialSupported || busy) return;
 
@@ -139,19 +242,7 @@ export default function Flasher() {
     let rpc: CydRpcClient | null = null;
 
     try {
-      const serial = (
-        navigator as Navigator & {
-          serial: {
-            requestPort(options?: {
-              filters?: {usbVendorId?: number; usbProductId?: number}[];
-            }): Promise<CydSerialPort>;
-          };
-        }
-      ).serial;
-
-      const port: CydSerialPort = await serial.requestPort({
-        filters: [{usbVendorId: 0x1a86, usbProductId: 0x7523}],
-      });
+      const port = await requestCydPort();
 
       const {ESPLoader, Transport} = await import("esptool-js");
       const transport = new Transport(port as never, false);
@@ -202,31 +293,7 @@ export default function Flasher() {
         }),
       );
 
-      const downloadedResources = await Promise.all(
-        SD_RESOURCES.map(async (resource) => {
-          const resourceUrl = `${BASE_PATH}/sdcard/${resource.path}`;
-          const response = await fetch(resourceUrl, {cache: "no-store"});
-          if (!response.ok) {
-            throw new Error(
-              `Failed to download SD resource ${resource.path} (${response.status})`,
-            );
-          }
-
-          const bytes = new Uint8Array(await response.arrayBuffer());
-          if (bytes.byteLength !== resource.size) {
-            throw new Error(
-              `${resource.path}: invalid size (${bytes.byteLength}/${resource.size})`,
-            );
-          }
-
-          const digest = await sha256Hex(bytes);
-          if (digest !== resource.sha256) {
-            throw new Error(`${resource.path}: invalid SHA-256 checksum`);
-          }
-
-          return {...resource, data: bytes};
-        }),
-      );
+      const downloadedResources = await downloadSdResources();
       log(
         `SD starter pack verified (${SD_RESOURCES.length} files, ${sdcardManifest.totalSize} bytes)`,
       );
@@ -274,60 +341,13 @@ export default function Flasher() {
       rpc = await connectRpcWithRetry(port, (attempt) => {
         log(`CYD RPC not ready; reconnect attempt ${attempt}/4`);
       });
-      const storage = await rpc.storageInfo();
-      if (storage.free < sdcardManifest.totalSize + SD_FREE_SPACE_MARGIN) {
-        throw new Error(
-          `Not enough free space on the SD card (${storage.free} bytes available)`,
-        );
-      }
-      log(
-        `SD card ready (${storage.free} bytes free of ${storage.total} bytes)`,
+      await provisionSd(
+        rpc,
+        downloadedResources,
+        FIRMWARE_PROGRESS,
+        RESOURCE_PROGRESS,
+        VERIFY_PROGRESS,
       );
-
-      setState("resources");
-      setDetail(
-        `Creating folders and copying ${SD_RESOURCES.length} required files`,
-      );
-      for (const directory of sdcardManifest.directories) {
-        await rpc.mkdir(`${sdcardManifest.targetRoot}/${directory}`);
-      }
-
-      let completedResourceBytes = 0;
-      for (const resource of downloadedResources) {
-        const devicePath = `${sdcardManifest.targetRoot}/${resource.path}`;
-        await rpc.writeFile(devicePath, resource.data, (written) => {
-          const ratio =
-            (completedResourceBytes + written) / sdcardManifest.totalSize;
-          setProgress(
-            FIRMWARE_PROGRESS +
-              Math.min(
-                RESOURCE_PROGRESS,
-                Math.round(ratio * RESOURCE_PROGRESS),
-              ),
-          );
-        });
-        completedResourceBytes += resource.size;
-        log(`Copied ${devicePath}`);
-      }
-
-      setProgress(FIRMWARE_PROGRESS + RESOURCE_PROGRESS);
-      setState("verifying");
-      setDetail("Checking every installed file against its MD5 checksum");
-      for (let index = 0; index < downloadedResources.length; index += 1) {
-        const resource = downloadedResources[index];
-        const devicePath = `${sdcardManifest.targetRoot}/${resource.path}`;
-        const deviceMd5 = (await rpc.md5(devicePath)).toLowerCase();
-        if (deviceMd5 !== resource.md5) {
-          throw new Error(
-            `${resource.path}: SD verification failed (${deviceMd5 || "no checksum"})`,
-          );
-        }
-        setProgress(
-          FIRMWARE_PROGRESS +
-            RESOURCE_PROGRESS +
-            Math.round(((index + 1) / downloadedResources.length) * VERIFY_PROGRESS),
-        );
-      }
 
       await rpc.close();
       rpc = null;
@@ -359,6 +379,51 @@ export default function Flasher() {
         // The browser may already have closed the serial stream.
       }
       transportRef.current = null;
+    }
+  }
+
+  async function installSdOnly() {
+    if (!webSerialSupported || busy) return;
+
+    setProgress(0);
+    setLogs([]);
+    setState("connecting");
+    setDetail("Select the running CYD USB-SERIAL CH340 port");
+
+    let rpc: CydRpcClient | null = null;
+    try {
+      const port = await requestCydPort();
+      setState("downloading");
+      setDetail("Downloading and verifying the SD starter pack");
+      const resources = await downloadSdResources();
+      log(
+        `SD starter pack verified (${resources.length} files, ${sdcardManifest.totalSize} bytes)`,
+      );
+
+      setState("restarting");
+      setDetail("Opening the CYD storage RPC without reflashing");
+      rpc = await connectRpcWithRetry(port, (attempt) => {
+        log(`CYD RPC not ready; reconnect attempt ${attempt}/4`);
+      });
+      await provisionSd(rpc, resources, 0, 90, 10);
+      await rpc.close();
+      rpc = null;
+
+      setProgress(100);
+      setState("done");
+      setDetail(`${SD_RESOURCES.length} SD resources installed and verified.`);
+      log("SD starter pack installation completed successfully.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown SD installation error";
+      setState("error");
+      setDetail(`SD setup failed: ${message}`);
+      log(`ERROR: ${message}`);
+      try {
+        await rpc?.close();
+      } catch {
+        // The port may already have closed after an RPC error.
+      }
     }
   }
 
@@ -409,16 +474,25 @@ export default function Flasher() {
               desktop computer.
             </div>
           ) : (
-            <button className="install-button" onClick={install} disabled={busy}>
-              <span>
-                {busy
-                  ? "Installing…"
-                  : state === "done"
-                    ? "Install again"
-                    : "Connect and install"}
-              </span>
-              <b aria-hidden="true">→</b>
-            </button>
+            <div className="install-actions">
+              <button className="install-button" onClick={install} disabled={busy}>
+                <span>
+                  {busy
+                    ? "Installing…"
+                    : state === "done"
+                      ? "Install again"
+                      : "Connect and install"}
+                </span>
+                <b aria-hidden="true">→</b>
+              </button>
+              <button
+                className="sd-only-button"
+                onClick={installSdOnly}
+                disabled={busy}
+              >
+                Install SD resources only
+              </button>
+            </div>
           )}
 
           <p className="privacy-note">
@@ -453,7 +527,7 @@ export default function Flasher() {
       </div>
 
       {logs.length > 0 && (
-        <details className="flash-log">
+        <details className="flash-log" open={state === "error" || undefined}>
           <summary>Technical log ({logs.length})</summary>
           <pre>{logs.join("\n")}</pre>
         </details>

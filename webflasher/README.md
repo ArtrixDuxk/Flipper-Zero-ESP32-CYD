@@ -37,6 +37,10 @@ generates both a qFlipper-compatible `/ext/Manifest` and a browser manifest
 with SHA-256 and MD5 checksums. The web installer verifies downloads before
 flashing and verifies every copied SD file through the CYD RPC afterward.
 
+If the firmware is already installed, use **Install SD resources only** on the
+site. It opens the running firmware RPC and provisions the card without erasing
+or reflashing the ESP32.
+
 ## Run locally
 
 ```bash
