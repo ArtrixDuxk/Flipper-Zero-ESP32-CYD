@@ -1,0 +1,31 @@
+{
+  "name": "Flipper Zero ESP32 Port — CYD",
+  "version": "1.4.3",
+  "chipFamily": "ESP32",
+  "flashMode": "dio",
+  "flashFrequency": "40m",
+  "flashSize": "4MB",
+  "parts": [
+    {
+      "name": "bootloader",
+      "path": "bootloader.bin",
+      "offset": 4096,
+      "size": 24240,
+      "sha256": "d5cf04c68cc4415f107f8fdf39899ffc923b8827c5bd23b03794555b7123f3bf"
+    },
+    {
+      "name": "partition-table",
+      "path": "partition-table.bin",
+      "offset": 32768,
+      "size": 3072,
+      "sha256": "1d96127072ec814fe820dbc0c3d3d0c94cbd4c739d2ba5251419fc09bcd1d731"
+    },
+    {
+      "name": "firmware",
+      "path": "furi_esp32.bin",
+      "offset": 65536,
+      "size": 2379440,
+      "sha256": "291fc9631c553c30364be9e1fc6ea82c10208d337096ac5789d32efe716369e7"
+    }
+  ]
+}

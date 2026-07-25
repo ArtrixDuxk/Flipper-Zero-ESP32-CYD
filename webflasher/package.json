@@ -1,0 +1,30 @@
+{
+  "name": "flipper-cyd-webflasher",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:cloudflare": "opennextjs-cloudflare build",
+    "lint": "tsc --noEmit",
+    "sync-firmware": "node scripts/sync-firmware.mjs"
+  },
+  "dependencies": {
+    "esptool-js": "0.6.0",
+    "next": "16.2.11",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "1.20.2",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3",
+    "wrangler": "4.114.0"
+  },
+  "overrides": {
+    "postcss": "8.5.23",
+    "sharp": "0.35.3"
+  }
+}
