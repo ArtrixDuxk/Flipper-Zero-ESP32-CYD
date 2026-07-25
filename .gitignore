@@ -8,6 +8,7 @@ __pycache__/
 sdkconfig.old
 .DS_Store
 build_waveshare_c6/
+build_cyd/
 .vscode/settings.json
 
 # Local-dev tooling (not for upstream)
@@ -27,4 +28,15 @@ managed_components/
 *~
 releases/*.zip
 *-backup-*
+
+# Local Node.js tooling
+node_modules/
+package-lock.json
+package.json
+
+# Local CI packaging directory
+artifact_staging/
+
+# qFlipper is maintained as a separate repository/fork
+qflipper/
 *.backup-*
