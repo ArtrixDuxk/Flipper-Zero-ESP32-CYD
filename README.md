@@ -32,7 +32,7 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 
 > ⚠️ ** DIY ESP32-S3 with 2.8" TFT ** - Currently supported via a fork pending full integration, work in progress, ready to flash bins also available in the discord, updated each release
 
-> ⚠️ **ESP32-2432S028 CYD + NM-RF-HAT — experimental.** Classic ESP32 (typically **4 MB flash, no PSRAM**). NM-RF-HAT uses a DIP switch so only **one** of CC1101 / nRF24 / PN532 / IR / RF433 is active at a time (shared IO22/IO27). Build with `./buildAndFlash_CYD.sh` or `./build.sh --board cyd`. Expect tighter RAM than T-Embed; WiFi monitor/handshake and heavy apps may need further cuts. USB-OTG (BadUSB USB / MSC / qFlipper) is **not** available — use BLE HID instead.
+> ⚠️ **ESP32-2432S028 CYD + NM-RF-HAT — experimental.** Classic ESP32 (typically **4 MB flash, no PSRAM**). NM-RF-HAT uses a DIP switch so only **one** of CC1101 / nRF24 / PN532 / IR / RF433 is active at a time (shared IO22/IO27). Build with `./buildAndFlash_CYD.sh` or `./build.sh --board cyd`. Expect tighter RAM than T-Embed; WiFi monitor/handshake and heavy apps may need further cuts. The classic ESP32 has no native USB-OTG, so **BadUSB over USB and USB Mass Storage are unavailable**. qFlipper is supported through UART0 and the board's CH340 USB-to-UART adapter, using the bundled [`qflipper/`](qflipper/) fork; native VID/PID spoofing and stock qFlipper discovery are not available on this board. The CYD firmware starts this UART bridge automatically at boot, and it can also be toggled from the lock menu.
 
 ![img](pic2.jpg)
 
@@ -145,10 +145,10 @@ HID payload runner for Ducky-script (`.txt`) files from `/ext/badusb/`.
 
 #### Lock Menu / System Toggles
 The desktop lock menu doubles as the central system control panel (board-dependent, scrollable):
-- **qFlipper** — enable the qFlipper desktop bridge (VID/PID spoof + CDC RPC) so the official qFlipper app can connect *(USB-OTG boards)*
-- **USB Storage** — expose the SD card as a USB mass-storage device *(USB-OTG boards)*
-- **Bluetooth** — toggle BLE on/off
-- **Mesh Clients** — buddy discovery & control *(see Mesh / Buddy above)*
+- **qFlipper** — enable or disable the desktop RPC bridge. ESP32-S2/S3 USB-OTG boards use native CDC with Flipper VID/PID descriptors. The CYD uses UART0 through its CH340 adapter and requires the bundled [`qflipper/`](qflipper/) fork; its bridge is enabled automatically at boot.
+- **USB Storage** — expose the SD card as a USB mass-storage device *(ESP32-S2/S3 USB-OTG boards only; hidden on the CYD)*.
+- **Bluetooth** — toggle BLE on/off where the Bluetooth stack can coexist with the GUI. The item is present on the CYD, but enabling it is currently rejected because the classic ESP32 without PSRAM does not have enough reliable free RAM for BLE + GUI.
+- **Mesh Clients** — ESP-NOW buddy discovery, pairing and control *(available on the CYD, experimental; see Mesh / Buddy above)*.
 
 #### Archive
 SD-card file browser with tabs per media type: Favorites, Sub-GHz, NFC, LF-RFID, Infrared, iButton, Bad USB, U2F, Apps, Internal, Browser. Pin/unpin favorites; copy, paste, rename, delete, create folder.
