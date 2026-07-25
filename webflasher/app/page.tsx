@@ -76,8 +76,9 @@ export default function Home() {
         <div>
           <strong>Experimental CYD port</strong>
           <p>
-            Bluetooth, native USB features, and some memory-heavy apps are not
-            supported. Review the compatibility notes before flashing.
+            Bluetooth is still in development. Native USB features and some
+            memory-heavy apps are not supported. Review the compatibility notes
+            before flashing.
           </p>
         </div>
         <b aria-hidden="true">↓</b>
@@ -191,12 +192,13 @@ export default function Home() {
             </ul>
           </article>
 
-          <article className="support-card support-unavailable">
-            <span>NOT SUPPORTED</span>
+          <article className="support-card support-experimental">
+            <span>IN DEVELOPMENT</span>
             <h3>Bluetooth and BLE</h3>
             <ul>
-              <li>Bluetooth is disabled because the board has no PSRAM.</li>
-              <li>BLE Spam, BLE Walk, BLE HID, and BLE BadUSB are unavailable.</li>
+              <li>The CYD hardware supports Bluetooth and BLE.</li>
+              <li>Bluetooth is currently disabled while its low-memory integration is being developed.</li>
+              <li>BLE Spam, BLE Walk, BLE HID, and BLE BadUSB are not ready yet.</li>
             </ul>
           </article>
 
