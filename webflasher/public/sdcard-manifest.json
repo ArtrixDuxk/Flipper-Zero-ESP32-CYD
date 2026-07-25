@@ -1,7 +1,7 @@
 {
   "name": "Flipper Zero ESP32 Port — CYD SD resources",
   "version": "1.0.0",
-  "generatedAt": 1784997391,
+  "generatedAt": 1784999703,
   "targetRoot": "/ext",
   "totalSize": 1032617,
   "directories": [
@@ -397,8 +397,8 @@
     {
       "path": "Manifest",
       "size": 4537,
-      "md5": "ab40fb75a8a959766f62b645b3839aea",
-      "sha256": "db3201598a3e466c54439a90642374660383a75655f10436ef7e7c4cf1f43d71"
+      "md5": "9dc5dad4de2f313f5f13ce1bbd7b5034",
+      "sha256": "ea5605d1bcecb337385786c744ef03ccc814a21effa8c5c987cb97ed2d983f80"
     }
   ]
 }

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run sync-sdcard",
     "build": "next build",
     "lint": "tsc --noEmit",
     "sync-firmware": "node scripts/sync-firmware.mjs",
