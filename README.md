@@ -160,11 +160,11 @@ mJS-based JavaScript runtime for user scripts in `/ext/apps/Scripts/*.js`.
 
 ### 🎮 Games
 
-#### Doom
-Full DOOM port. Place `doom1.wad` at `/ext/apps_data/doom/doom1.wad`. Encoder turns; click fires (short) / walks forward (long). Side-button uses doors/switches (short) / opens menu (long).
+#### Snake Game
+Jogo leve incluído no projeto. A compatibilidade com os controles por toque da CYD ainda precisa ser testada na placa.
 
-#### Snake
-Classic snake game.
+#### Não suportados na CYD
+Doom e Wolf3D não fazem parte do alvo CYD. Eles dependem de mais flash e PSRAM do que a ESP32-2432S028 normalmente oferece.
 
 ### ⚙ Settings & General
 Bluetooth, backlight, clock, dolphin/passport, expansion port, input, notification, power, storage, system info, factory reset. Animated dolphin desktop on idle. File-pack manifest at `/ext/Manifest` (qFlipper-style asset list — its presence suppresses the "No DB" boot animation).
@@ -178,7 +178,6 @@ Bluetooth, backlight, clock, dolphin/passport, expansion port, input, notificati
 | `/ext/apps_assets/nfc/plugins/` | NFC protocol plugins (.fal) |
 | `/ext/apps_data/nfc/plugins/` | NFC card-parser plugins (.fal) |
 | `/ext/apps_data/js_app/plugins/` | JS module bindings (.fal) |
-| `/ext/apps_data/doom/doom1.wad` | Doom |
 | `/ext/badusb/` | Bad USB scripts + `assets/layouts/*.kl` |
 | `/ext/infrared/assets/` | Universal remote DBs (`tv.ir`, `ac.ir`, `audio.ir`, `projectors.ir`, `fans.ir`, `leds.ir`) |
 | `/ext/lfrfid/assets/iso3166.lfrfid` | LF-RFID country code lookup |
