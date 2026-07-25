@@ -39,6 +39,12 @@ typedef enum {
     RpcOwnerCount,
 } RpcOwner;
 
+/** Temporarily release/recreate the active GUI screen stream. These calls are
+ * idempotent and preserve the host session, allowing memory-heavy apps to
+ * allocate contiguous internal RAM without disconnecting qFlipper. */
+void rpc_system_gui_suspend_screen_stream(void);
+void rpc_system_gui_resume_screen_stream(void);
+
 /** Get RPC session owner
  *
  * @param   session     pointer to RpcSession descriptor

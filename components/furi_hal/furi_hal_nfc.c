@@ -17,6 +17,7 @@
  */
 
 #include "furi_hal_nfc.h"
+#include "furi_hal_rf_mux.h"
 #include <furi.h>
 #include <board.h>
 
@@ -188,33 +189,114 @@ static void block_tx_timer_cb(void* arg) {
 
 /* ──────────────────────────── PN532 I2C Low-Level ───────────────────────── */
 
-static esp_err_t pn532_i2c_init(void) {
-    /* I2C bus may already be initialized by furi_hal_power (shared QWIIC/NFC pins).
-     * Try to install; if already running, just reuse it. */
+static bool nfc_i2c_installed_by_us = false;
+static int nfc_sda_pin = -1;
+static int nfc_scl_pin = -1;
+
+static void pn532_i2c_uninstall(void) {
+    if(!nfc_i2c_installed_by_us) return;
+    esp_err_t err = i2c_driver_delete(BOARD_NFC_I2C_PORT);
+    if(err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        FURI_LOG_W(TAG, "i2c_driver_delete: %s", esp_err_to_name(err));
+    }
+    nfc_i2c_installed_by_us = false;
+    if(nfc_sda_pin >= 0) gpio_reset_pin((gpio_num_t)nfc_sda_pin);
+    if(nfc_scl_pin >= 0) gpio_reset_pin((gpio_num_t)nfc_scl_pin);
+    nfc_sda_pin = -1;
+    nfc_scl_pin = -1;
+}
+
+static esp_err_t pn532_i2c_init_pins(int sda, int scl) {
+    /* Fully release pins before claiming for I2C (were SPI CS / CE / RMT). */
+    gpio_reset_pin((gpio_num_t)sda);
+    gpio_reset_pin((gpio_num_t)scl);
+    furi_delay_ms(5);
+
+    if(nfc_i2c_installed_by_us) {
+        pn532_i2c_uninstall();
+        furi_delay_ms(10);
+    } else {
+        /* Stale install from power/touch path — drop it so we own the pin map. */
+        (void)i2c_driver_delete(BOARD_NFC_I2C_PORT);
+    }
+
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
-        .sda_io_num = BOARD_PIN_NFC_SDA,
-        .scl_io_num = BOARD_PIN_NFC_SCL,
+        .sda_io_num = sda,
+        .scl_io_num = scl,
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 100000,
+        .master.clk_speed = 50000, /* 50 kHz — safer on DIP-muxed longish traces */
     };
 
-    esp_err_t err = i2c_driver_install(BOARD_NFC_I2C_PORT, conf.mode, 0, 0, 0);
+    esp_err_t err = i2c_param_config(BOARD_NFC_I2C_PORT, &conf);
+    if(err != ESP_OK) {
+        FURI_LOG_E(TAG, "i2c_param_config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = i2c_driver_install(BOARD_NFC_I2C_PORT, conf.mode, 0, 0, 0);
     if(err == ESP_OK) {
-        /* Fresh install — configure pins */
-        i2c_param_config(BOARD_NFC_I2C_PORT, &conf);
-    } else {
-        /* Already installed (by power or touch) — reuse as-is */
-        FURI_LOG_I(TAG, "I2C bus %d already initialized, reusing", BOARD_NFC_I2C_PORT);
+        nfc_i2c_installed_by_us = true;
+        nfc_sda_pin = sda;
+        nfc_scl_pin = scl;
+        FURI_LOG_I(TAG, "I2C%d installed SDA=GPIO%d SCL=GPIO%d @50kHz",
+                   (int)BOARD_NFC_I2C_PORT, sda, scl);
+    } else if(err == ESP_ERR_INVALID_STATE) {
+        nfc_i2c_installed_by_us = true;
+        nfc_sda_pin = sda;
+        nfc_scl_pin = scl;
+        FURI_LOG_W(TAG, "I2C bus %d already installed — reusing (SDA=%d SCL=%d)",
+                   (int)BOARD_NFC_I2C_PORT, sda, scl);
         err = ESP_OK;
+    } else {
+        FURI_LOG_E(TAG, "i2c_driver_install failed: %s", esp_err_to_name(err));
     }
     return err;
 }
 
-/** Wait for PN532 ready: IRQ pin LOW or I2C RDY byte polling */
+static esp_err_t pn532_i2c_init(void) {
+    return pn532_i2c_init_pins((int)BOARD_PIN_NFC_SDA, (int)BOARD_PIN_NFC_SCL);
+}
+
+/** Log every ACK on the bus — helps confirm wiring / DIP / address. */
+static void pn532_i2c_bus_scan(void) {
+    FURI_LOG_I(TAG, "I2C scan on port %d (SDA=%d SCL=%d)...",
+               (int)BOARD_NFC_I2C_PORT, nfc_sda_pin, nfc_scl_pin);
+    int found = 0;
+    for(uint8_t addr = 0x08; addr < 0x78; addr++) {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_stop(cmd);
+        esp_err_t err = i2c_master_cmd_begin(BOARD_NFC_I2C_PORT, cmd, pdMS_TO_TICKS(30));
+        i2c_cmd_link_delete(cmd);
+        if(err == ESP_OK) {
+            FURI_LOG_I(TAG, "  I2C device at 0x%02X%s", addr,
+                       addr == PN532_I2C_ADDR ? "  <-- PN532 expected" : "");
+            found++;
+        }
+    }
+    if(found == 0) {
+        FURI_LOG_W(TAG, "  no I2C devices — check DIP pos 3, wiring, power");
+    }
+}
+
+/** Tear down PN532 I2C so DIP-mux pins can become SPI CS / RMT again. */
+void furi_hal_nfc_bus_force_release(void) {
+#if defined(BOARD_NFC_LAZY_INIT) && BOARD_NFC_LAZY_INIT
+    if(!nfc_hal_ready && !nfc_i2c_installed_by_us) return;
+#endif
+    pn532_i2c_uninstall();
+    nfc_hal_ready = false;
+    FURI_LOG_I(TAG, "NFC I2C bus released for RF mux reclaim");
+}
+
+/** Wait for PN532 ready: IRQ pin LOW or I2C RDY byte polling.
+ * NOTE: BOARD_PIN_NFC_IRQ may be defined as UINT16_MAX (unmapped) — must not
+ * treat that as a real IRQ pin (#ifdef alone is not enough). */
 static bool pn532_wait_ready(uint32_t timeout_ms) {
-#ifdef BOARD_PIN_NFC_IRQ
+#if defined(BOARD_PIN_NFC_IRQ) && (BOARD_PIN_NFC_IRQ != UINT16_MAX)
     uint32_t start = furi_get_tick();
     while((furi_get_tick() - start) < timeout_ms) {
         if(gpio_get_level(BOARD_PIN_NFC_IRQ) == 0) return true;
@@ -355,6 +437,125 @@ static FuriHalNfcError pn532_status_to_error(uint8_t status) {
 
 /* ──────────────────────────── HAL Public API ─────────────────────────────── */
 
+#if defined(BOARD_NFC_LAZY_INIT) && BOARD_NFC_LAZY_INIT
+static bool nfc_soft_ready = false;
+
+/** Bring up I2C + PN532 only when the NFC app actually needs the bus.
+ * On NM-RF-HAT, SCL/SDA share IO22/IO27 with CC1101 GDO0/CSN — grabbing I2C
+ * at boot permanently breaks SubGHz SPI. DIP must be on NFC when this runs. */
+static FuriHalNfcError pn532_probe_once(uint8_t* resp, size_t* resp_len) {
+    uint8_t cmd[] = {PN532_CMD_GETFIRMWAREVERSION};
+    *resp_len = 4;
+    return pn532_send_command(cmd, sizeof(cmd), resp, resp_len, 1500);
+}
+
+static FuriHalNfcError furi_hal_nfc_start_bus(void) {
+    if(nfc_hal_ready) return FuriHalNfcErrorNone;
+    if(!nfc_soft_ready) return FuriHalNfcErrorCommunication;
+
+    FURI_LOG_I(TAG, "NFC bus start (lazy) — HAT DIP must be ON position 3 only");
+    furi_hal_rf_mux_claim(FuriHalRfMuxPathNfc);
+
+#if defined(BOARD_PIN_NFC_IRQ) && (BOARD_PIN_NFC_IRQ != UINT16_MAX)
+    gpio_config_t irq_conf = {
+        .pin_bit_mask = (1ULL << BOARD_PIN_NFC_IRQ),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&irq_conf);
+#endif
+
+#if defined(BOARD_PIN_NFC_RST) && (BOARD_PIN_NFC_RST != UINT16_MAX)
+    gpio_config_t rst_conf = {
+        .pin_bit_mask = (1ULL << BOARD_PIN_NFC_RST),
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&rst_conf);
+    gpio_set_level((gpio_num_t)BOARD_PIN_NFC_RST, 0);
+    furi_delay_ms(20);
+    gpio_set_level((gpio_num_t)BOARD_PIN_NFC_RST, 1);
+#endif
+
+    /* Pin pairs to try: board default, then swapped (HAT silkscreen ambiguity). */
+    const int pin_pairs[][2] = {
+        {(int)BOARD_PIN_NFC_SDA, (int)BOARD_PIN_NFC_SCL},
+        {(int)BOARD_PIN_NFC_SCL, (int)BOARD_PIN_NFC_SDA},
+    };
+
+    uint8_t resp[4] = {0};
+    size_t resp_len = 4;
+    FuriHalNfcError nfc_err = FuriHalNfcErrorCommunication;
+    bool probed = false;
+
+    for(size_t p = 0; p < 2; p++) {
+        int sda = pin_pairs[p][0];
+        int scl = pin_pairs[p][1];
+        if(sda < 0 || scl < 0 || sda == UINT16_MAX || scl == UINT16_MAX) continue;
+
+        FURI_LOG_I(TAG, "NFC try %u: SDA=GPIO%d SCL=GPIO%d", (unsigned)(p + 1), sda, scl);
+        esp_err_t err = pn532_i2c_init_pins(sda, scl);
+        if(err != ESP_OK) {
+            FURI_LOG_E(TAG, "I2C init failed: %s", esp_err_to_name(err));
+            continue;
+        }
+
+        /* PN532 power-up after DIP select can take a few hundred ms. */
+        furi_delay_ms(400);
+        pn532_i2c_bus_scan();
+
+        for(int attempt = 0; attempt < 3; attempt++) {
+            resp_len = 4;
+            nfc_err = pn532_probe_once(resp, &resp_len);
+            if(nfc_err == FuriHalNfcErrorNone) {
+                probed = true;
+                break;
+            }
+            FURI_LOG_W(TAG, "GetFirmwareVersion try %d failed (err=%d)", attempt + 1, (int)nfc_err);
+            furi_delay_ms(100);
+        }
+        if(probed) break;
+    }
+
+    if(!probed) {
+        FURI_LOG_E(
+            TAG,
+            "PN532 not found — DIP 3 ON alone? HAT powered? "
+            "Look for 'I2C device at 0x24' in scan above");
+        return FuriHalNfcErrorCommunication;
+    }
+
+    FURI_LOG_I(
+        TAG,
+        "PN532 IC=0x%02X FW=%d.%d Support=0x%02X (SDA=%d SCL=%d)",
+        resp[0],
+        resp[1],
+        resp[2],
+        resp[3],
+        nfc_sda_pin,
+        nfc_scl_pin);
+
+    /* SAM: normal mode, 1s timeout. use_irq=0 when board has no IRQ pin. */
+#if defined(BOARD_PIN_NFC_IRQ) && (BOARD_PIN_NFC_IRQ != UINT16_MAX)
+    uint8_t sam_cmd[] = {PN532_CMD_SAMCONFIGURATION, 0x01, 0x14, 0x01};
+#else
+    uint8_t sam_cmd[] = {PN532_CMD_SAMCONFIGURATION, 0x01, 0x14, 0x00};
+#endif
+    nfc_err = pn532_send_command(sam_cmd, sizeof(sam_cmd), NULL, NULL, 1000);
+    if(nfc_err != FuriHalNfcErrorNone) {
+        FURI_LOG_E(TAG, "SAM config failed");
+        return FuriHalNfcErrorCommunication;
+    }
+
+    uint8_t retry_cmd[] = {PN532_CMD_RFCONFIGURATION, PN532_RFCFG_RETRIES, 0xFF, 0x01, 0xFF};
+    pn532_send_command(retry_cmd, sizeof(retry_cmd), NULL, NULL, 1000);
+
+    nfc_hal_ready = true;
+    pn532_target_number = 0;
+    FURI_LOG_I(TAG, "NFC HAL bus ready");
+    return FuriHalNfcErrorNone;
+}
+#endif
+
 FuriHalNfcError furi_hal_nfc_init(void) {
     FURI_LOG_I(TAG, "Initializing NFC HAL (PN532 I2C)");
 
@@ -367,8 +568,16 @@ FuriHalNfcError furi_hal_nfc_init(void) {
     esp_timer_create(&fwt_args, &fwt_timer);
     esp_timer_create(&btx_args, &block_tx_timer);
 
-    /* Configure IRQ pin */
-#ifdef BOARD_PIN_NFC_IRQ
+#if defined(BOARD_NFC_LAZY_INIT) && BOARD_NFC_LAZY_INIT
+    /* Soft-only: do NOT touch I2C pins at boot (shared with SubGHz on HAT). */
+    nfc_soft_ready = true;
+    nfc_hal_ready = false;
+    FURI_LOG_I(TAG, "NFC HAL soft-init OK (lazy bus — open NFC app with DIP=3)");
+    return FuriHalNfcErrorNone;
+#else
+
+    /* Configure IRQ pin (skip if board leaves it unmapped as UINT16_MAX). */
+#if defined(BOARD_PIN_NFC_IRQ) && (BOARD_PIN_NFC_IRQ != UINT16_MAX)
     gpio_config_t irq_conf = {
         .pin_bit_mask = (1ULL << BOARD_PIN_NFC_IRQ),
         .mode = GPIO_MODE_INPUT,
@@ -377,14 +586,14 @@ FuriHalNfcError furi_hal_nfc_init(void) {
     gpio_config(&irq_conf);
 #endif
 
-    /* Ensure RST is HIGH (PN532 powered from board power-on) */
-#ifdef BOARD_PIN_NFC_RST
+    /* Ensure RST is HIGH when a dedicated pin exists (PN532 often power-on ready). */
+#if defined(BOARD_PIN_NFC_RST) && (BOARD_PIN_NFC_RST != UINT16_MAX)
     gpio_config_t rst_conf = {
         .pin_bit_mask = (1ULL << BOARD_PIN_NFC_RST),
         .mode = GPIO_MODE_OUTPUT,
     };
     gpio_config(&rst_conf);
-    gpio_set_level(BOARD_PIN_NFC_RST, 1);
+    gpio_set_level((gpio_num_t)BOARD_PIN_NFC_RST, 1);
 #endif
 
     /* Init I2C (bus likely already initialized by furi_hal_power) */
@@ -426,14 +635,22 @@ FuriHalNfcError furi_hal_nfc_init(void) {
     pn532_target_number = 0;
     FURI_LOG_I(TAG, "NFC HAL initialized");
     return FuriHalNfcErrorNone;
+#endif
 }
 
 FuriHalNfcError furi_hal_nfc_is_hal_ready(void) {
+#if defined(BOARD_NFC_LAZY_INIT) && BOARD_NFC_LAZY_INIT
+    if(nfc_hal_ready) return FuriHalNfcErrorNone;
+    return furi_hal_nfc_start_bus();
+#else
     return nfc_hal_ready ? FuriHalNfcErrorNone : FuriHalNfcErrorCommunication;
+#endif
 }
 
 FuriHalNfcError furi_hal_nfc_acquire(void) {
-    if(!nfc_hal_ready) return FuriHalNfcErrorCommunication;
+    if(furi_hal_nfc_is_hal_ready() != FuriHalNfcErrorNone) {
+        return FuriHalNfcErrorCommunication;
+    }
     furi_check(furi_mutex_acquire(nfc_mutex, FuriWaitForever) == FuriStatusOk);
     return FuriHalNfcErrorNone;
 }
@@ -1882,6 +2099,9 @@ void furi_hal_nfc_pn532_mf_deauth(void) {
 #else /* !BOARD_HAS_NFC */
 
 /* ── No NFC hardware: all functions return errors or no-ops ────────────── */
+
+void furi_hal_nfc_bus_force_release(void) {
+}
 
 FuriHalNfcError furi_hal_nfc_init(void) {
     FURI_LOG_I(TAG, "NFC HAL: no NFC hardware on this board");

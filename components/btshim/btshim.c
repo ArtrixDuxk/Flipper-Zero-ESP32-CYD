@@ -9,6 +9,7 @@
 
 #include "bt_i.h"
 
+#include <sdkconfig.h>
 #include <furi_hal_bt.h>
 #include <gui/elements.h>
 #include <assets_icons.h>
@@ -450,6 +451,13 @@ static void bt_statusbar_update(Bt* bt) {
 /* ---- Profile management ---- */
 
 static void bt_change_profile(Bt* bt, BtMessage* message) {
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    FURI_LOG_W(TAG, "bt_change_profile blocked on ESP32 classic (low RAM)");
+    if(message->result) *message->result = false;
+    if(message->profile_instance) *message->profile_instance = NULL;
+    bt->status = BtStatusUnavailable;
+    return;
+#endif
     if(furi_hal_bt_is_gatt_gap_supported()) {
         bt_settings_load(&bt->bt_settings);
 
@@ -495,6 +503,18 @@ static void bt_close_connection(Bt* bt) {
 
 static void bt_apply_settings(Bt* bt) {
     FURI_LOG_I(TAG, "bt_apply_settings: enabled=%d", bt->bt_settings.enabled);
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    if(bt->bt_settings.enabled) {
+        /* Enabling from Settings must not try to spin up full GATT serial. */
+        FURI_LOG_W(
+            TAG,
+            "ESP32 classic: Bluetooth On ignored (not enough RAM for BLE + GUI). "
+            "Use BLE Spam/HID only with care, or an S3 board.");
+        bt->bt_settings.enabled = false;
+        bt->status = BtStatusUnavailable;
+        return;
+    }
+#endif
     if(bt->bt_settings.enabled) {
         furi_hal_bt_start_advertising();
     } else {
@@ -518,6 +538,13 @@ static void bt_load_keys(Bt* bt) {
 }
 
 static void bt_start_application(Bt* bt) {
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    /* Never allocate GATT serial profile on classic ESP32 — it OOMs the GUI. */
+    FURI_LOG_W(TAG, "bt_start_application blocked on ESP32 classic (low RAM)");
+    bt->current_profile = NULL;
+    bt->status = BtStatusUnavailable;
+    return;
+#endif
     FURI_LOG_I(TAG, "bt_start_application: current_profile=%p", (void*)bt->current_profile);
     if(!bt->current_profile) {
         FURI_LOG_I(TAG, "Starting ble_profile_serial...");
@@ -562,8 +589,9 @@ static void bt_handle_reload_keys_settings(Bt* bt) {
 static void bt_handle_stop_stack(Bt* bt) {
     FURI_LOG_I(TAG, "Stopping BLE stack...");
 
-    if(bt->status == BtStatusOff) {
-        FURI_LOG_I(TAG, "BLE stack already off");
+    if(bt->status == BtStatusOff || bt->status == BtStatusUnavailable) {
+        FURI_LOG_I(TAG, "BLE stack already off/unavailable — skip deinit");
+        bt->status = BtStatusOff;
         return;
     }
 
@@ -575,19 +603,21 @@ static void bt_handle_stop_stack(Bt* bt) {
         bt->current_profile = NULL;
     }
 
-    // Only deinit if stack was actually initialized
-    if(esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_UNINITIALIZED) {
+    /* Only tear down if host/controller were actually brought up. */
+    if(esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED) {
         esp_bluedroid_disable();
         furi_delay_ms(50);
+    }
+    if(esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_INITIALIZED) {
         esp_bluedroid_deinit();
         furi_delay_ms(50);
     }
 
-    if(esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE) {
+    if(esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) {
         esp_bt_controller_disable();
         furi_delay_ms(50);
     }
-    if(esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE) {
+    if(esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_INITED) {
         esp_bt_controller_deinit();
         furi_delay_ms(50);
     }
@@ -601,6 +631,12 @@ static void bt_handle_stop_stack(Bt* bt) {
 
 static void bt_handle_start_stack(Bt* bt) {
     FURI_LOG_I(TAG, "Starting BLE stack...");
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    FURI_LOG_W(TAG, "BLE stack start refused on ESP32 classic (use a board with PSRAM)");
+    bt->bt_settings.enabled = false;
+    bt->status = BtStatusUnavailable;
+    return;
+#endif
 
     if(furi_hal_bt_start_radio_stack()) {
         bt_start_application(bt);
@@ -772,6 +808,21 @@ void bt_start_stack(Bt* bt) {
 
 int32_t bt_srv(void* p) {
     UNUSED(p);
+
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    /* This target deliberately disables every BLE entry point below. Release
+     * the controller's statically reserved BTDM data/BSS before allocating the
+     * service and application objects. The release is irreversible until the
+     * next reboot, which matches the ESP32/CYD policy in this file. */
+    esp_err_t bt_mem_err = esp_bt_mem_release(ESP_BT_MODE_BTDM);
+    FURI_LOG_I(
+        TAG,
+        "BTDM memory release: %s, heap=%u largest=%u",
+        esp_err_to_name(bt_mem_err),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+#endif
+
     Bt* bt = bt_alloc();
 
     /* Load settings FIRST to know if BLE should be started */
@@ -785,6 +836,19 @@ int32_t bt_srv(void* p) {
         bt->bt_settings.enabled = false;
     }
 
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    /* Classic ESP32 (CYD 4MB/no-PSRAM): Bluedroid serial GATT leaves ~3KB free
+     * heap → menu icon decode OOM → StoreProhibited reboot. Keep RECORD_BT but
+     * never auto-start the controller on this target. */
+    if(bt->bt_settings.enabled) {
+        FURI_LOG_W(
+            TAG,
+            "ESP32 classic: forcing BT off at boot (low RAM). Free heap before stack would be too small for GUI/apps.");
+    }
+    bt->bt_settings.enabled = false;
+    bt->status = BtStatusUnavailable;
+#endif
+
     if(bt->bt_settings.enabled) {
         /* Start the BLE stack and default profile */
         if(furi_hal_bt_start_radio_stack()) {
@@ -794,7 +858,7 @@ int32_t bt_srv(void* p) {
             FURI_LOG_E(TAG, "Radio stack start failed");
         }
     } else {
-        FURI_LOG_I(TAG, "BT disabled in settings, skipping BLE stack init");
+        FURI_LOG_I(TAG, "BT disabled, skipping BLE stack init (heap stays free for apps)");
     }
 
     furi_record_create(RECORD_BT, bt);

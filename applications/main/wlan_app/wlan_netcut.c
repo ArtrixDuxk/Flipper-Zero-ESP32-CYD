@@ -624,8 +624,13 @@ static int32_t netcut_worker_fn(void* ctx) {
 // ---------------------------------------------------------------------------
 WlanNetcut* wlan_netcut_alloc(void) {
     WlanNetcut* nc = malloc(sizeof(WlanNetcut));
+    if(!nc) return NULL;
     memset(nc, 0, sizeof(*nc));
     nc->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    if(!nc->mutex) {
+        free(nc);
+        return NULL;
+    }
     return nc;
 }
 

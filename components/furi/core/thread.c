@@ -208,6 +208,8 @@ FuriThread* furi_thread_alloc(void) {
     /* FuriThread contains StaticTask_t (TCB) which FreeRTOS requires in internal RAM */
     FuriThread* thread = heap_caps_calloc(1, sizeof(FuriThread), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
+    if(!thread) return NULL;
+
     furi_thread_init_common(thread);
 
     return thread;
@@ -234,16 +236,31 @@ FuriThread* furi_thread_alloc_service(
     return thread;
 }
 
-FuriThread* furi_thread_alloc_ex(
+FuriThread* furi_thread_try_alloc_ex(
     const char* name,
     uint32_t stack_size,
     FuriThreadCallback callback,
     void* context) {
     FuriThread* thread = furi_thread_alloc();
+    if(!thread) return NULL;
     furi_thread_set_name(thread, name);
     furi_thread_set_stack_size(thread, stack_size);
+    if(!thread->stack_buffer) {
+        furi_thread_free(thread);
+        return NULL;
+    }
     furi_thread_set_callback(thread, callback);
     furi_thread_set_context(thread, context);
+    return thread;
+}
+
+FuriThread* furi_thread_alloc_ex(
+    const char* name,
+    uint32_t stack_size,
+    FuriThreadCallback callback,
+    void* context) {
+    FuriThread* thread = furi_thread_try_alloc_ex(name, stack_size, callback, context);
+    furi_check(thread);
     return thread;
 }
 

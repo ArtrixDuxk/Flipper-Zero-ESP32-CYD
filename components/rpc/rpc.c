@@ -353,7 +353,7 @@ static void
 RpcSession* rpc_session_open(Rpc* rpc, RpcOwner owner) {
     furi_check(rpc);
 
-    RpcSession* session = malloc(sizeof(RpcSession));
+    RpcSession* session = calloc(1, sizeof(RpcSession));
     session->callbacks_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     session->stream = furi_stream_buffer_alloc(RPC_BUFFER_SIZE, 1);
     session->rpc = rpc;
@@ -362,7 +362,7 @@ RpcSession* rpc_session_open(Rpc* rpc, RpcOwner owner) {
     session->owner = owner;
     RpcHandlerDict_init(session->handlers);
 
-    session->decoded_message = malloc(sizeof(PB_Main));
+    session->decoded_message = calloc(1, sizeof(PB_Main));
     session->decoded_message->cb_content.funcs.decode = rpc_pb_content_callback;
     session->decoded_message->cb_content.arg = session;
 

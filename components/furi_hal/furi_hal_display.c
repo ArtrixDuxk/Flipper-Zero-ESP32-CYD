@@ -20,6 +20,9 @@
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_lcd_panel_ops.h>
+#ifdef BOARD_LCD_DRIVER_ILI9341
+#include <esp_lcd_ili9341.h>
+#endif
 #include <freertos/semphr.h>
 
 static const char* TAG = "FuriHalDisplay";
@@ -40,6 +43,16 @@ static const char* TAG = "FuriHalDisplay";
 #define BOARD_LCD_SIDE_MARGIN 4
 #endif
 #define DISPLAY_SIDE_MARGIN BOARD_LCD_SIDE_MARGIN
+
+/* Optional software flip of the mono framebuffer when scaling to the panel.
+ * Useful when the panel MADCTL mirrors are wrong or only one axis is inverted
+ * (e.g. CYD ILI9341 "text looks like a mirror"). */
+#ifndef BOARD_LCD_FB_MIRROR_X
+#define BOARD_LCD_FB_MIRROR_X 0
+#endif
+#ifndef BOARD_LCD_FB_MIRROR_Y
+#define BOARD_LCD_FB_MIRROR_Y 0
+#endif
 
 /* Horizontal resolution actually available to the UI after reserving the
  * left/right margins. The aspect-fit below scales into this, then the result
@@ -166,10 +179,22 @@ void furi_hal_display_init(void) {
         ESP_ERROR_CHECK(lcd_flush_done ? ESP_OK : ESP_ERR_NO_MEM);
     }
 
-    /* Initialize SPI bus */
+    /* Initialize LCD SPI bus.
+     * Boards may share MISO with the SD card (T-Embed / Waveshare) or use a
+     * dedicated LCD MISO / no MISO (CYD: HSPI separate from VSPI RF+SD). */
+    int lcd_miso = -1;
+#if defined(BOARD_PIN_LCD_MISO)
+    if(BOARD_PIN_LCD_MISO != UINT16_MAX) {
+        lcd_miso = (int)BOARD_PIN_LCD_MISO;
+    }
+#else
+    if(gpio_sdcard_miso.pin != UINT16_MAX) {
+        lcd_miso = (int)gpio_sdcard_miso.pin;
+    }
+#endif
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = gpio_lcd_din.pin,
-        .miso_io_num = gpio_sdcard_miso.pin,
+        .miso_io_num = lcd_miso,
         .sclk_io_num = gpio_lcd_clk.pin,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
@@ -196,9 +221,11 @@ void furi_hal_display_init(void) {
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(LCD_SPI_HOST, &io_config, &io_handle));
 
-    /* Create ST7789 panel */
+    const int reset_gpio =
+        (gpio_lcd_rst.pin != UINT16_MAX) ? (int)gpio_lcd_rst.pin : -1;
+
     esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = gpio_lcd_rst.pin,
+        .reset_gpio_num = reset_gpio,
 #if defined(BOARD_LCD_COLOR_ORDER_BGR) && BOARD_LCD_COLOR_ORDER_BGR
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
 #else
@@ -206,61 +233,75 @@ void furi_hal_display_init(void) {
 #endif
         .bits_per_pixel = 16,
     };
-    /* --- Bring the ST7789 to a known-clean state, every boot --------------
-     * A software reset (esp_restart) does NOT power-cycle the display: the
-     * ST7789 keeps every register — MADCTL/colour-order, COLMOD, inversion,
-     * rotation. That happens after an `esptool` flash *and* after any other
-     * firmware that configured the panel differently ran before us. If any of
-     * that lingers the R/B channels end up swapped — Flipper orange shows up as
-     * blue — until the user pulls the battery (a real cold boot). So we do what
-     * a thorough driver (TFT_eSPI) does on every init: hardware-reset pulse →
-     * SWRESET command → full panel init → re-assert COLMOD. After that the panel
-     * is in *our* configuration regardless of what ran before. */
 
-    /* 1) Hardware reset pulse on RESX (HIGH → LOW → HIGH, generous timing). */
-    gpio_config_t rst_cfg = {
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = 1ULL << gpio_lcd_rst.pin,
-    };
-    gpio_config(&rst_cfg);
-    gpio_set_level((gpio_num_t)gpio_lcd_rst.pin, 1);   /* ensure a clean falling edge */
-    vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level((gpio_num_t)gpio_lcd_rst.pin, 0);   /* assert reset (active low) */
-    vTaskDelay(pdMS_TO_TICKS(20));                      /* RESX min low is 10us; be generous */
-    gpio_set_level((gpio_num_t)gpio_lcd_rst.pin, 1);   /* release reset */
-    vTaskDelay(pdMS_TO_TICKS(150));                     /* ST7789: wait ≥120ms after reset */
+    /* Hardware reset when a dedicated RESX pin exists. Soft-reset alone is
+     * used on boards (classic CYD) where RST is hard-wired / not broken out. */
+    if(reset_gpio >= 0) {
+        gpio_config_t rst_cfg = {
+            .mode = GPIO_MODE_OUTPUT,
+            .pin_bit_mask = 1ULL << reset_gpio,
+        };
+        gpio_config(&rst_cfg);
+        gpio_set_level((gpio_num_t)reset_gpio, 1);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        gpio_set_level((gpio_num_t)reset_gpio, 0);
+        vTaskDelay(pdMS_TO_TICKS(20));
+        gpio_set_level((gpio_num_t)reset_gpio, 1);
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
 
-    /* 2) Software reset (0x01) — re-loads all registers to factory defaults
-     *    even if the RESX pulse above didn't fully take (e.g. a glitch on the
-     *    line right after the ESP32 digital reset). The display still draws
-     *    pixels in that case, so this command reaches it just fine. */
     ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io_handle, 0x01 /* SWRESET */, NULL, 0));
     vTaskDelay(pdMS_TO_TICKS(150));
 
+#ifdef BOARD_LCD_DRIVER_ILI9341
+    ESP_LOGI(TAG, "Creating ILI9341 panel");
+    ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_config, &panel_handle));
+#else
+    ESP_LOGI(TAG, "Creating ST7789 panel");
     ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle));
+#endif
 
-    /* 3) esp_lcd does another RESX pulse, then SLPOUT + COLMOD + MADCTL. */
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 
-    /* Display orientation and corrections from board config (these (re)write
-     * MADCTL with our colour order + mirror/swap bits, and INVON/INVOFF). */
+    /* Orientation / colour corrections from board config. */
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, BOARD_LCD_INVERT_COLOR));
+#ifndef BOARD_LCD_MADCTL
+    /* When a board forces MADCTL, skip helper bits so we don't fight it. */
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, BOARD_LCD_SWAP_XY));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, BOARD_LCD_MIRROR_X, BOARD_LCD_MIRROR_Y));
+#endif
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, BOARD_LCD_GAP_X, BOARD_LCD_GAP_Y));
 
-    /* 4) Belt-and-suspenders: pin down pixel format + normal display mode.
-     *    COLMOD 0x55 = 16 bits/pixel (RGB565) — matches bits_per_pixel=16 above;
-     *    NORON (0x13) = normal display mode (not partial/idle). Both are no-ops
-     *    when the state is already right and cost nothing. */
     {
-        const uint8_t colmod = 0x55;
+        const uint8_t colmod = 0x55; /* 16 bpp RGB565 */
         ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io_handle, 0x3A /* COLMOD */, &colmod, 1));
     }
     ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io_handle, 0x13 /* NORON */, NULL, 0));
 
-    /* Turn on display */
+#ifdef BOARD_LCD_MADCTL
+    /* Final MADCTL (e.g. CYD ILI9341 landscape). Overrides swap/mirror helpers. */
+    {
+        const uint8_t madctl = (uint8_t)BOARD_LCD_MADCTL;
+        ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io_handle, 0x36 /* MADCTL */, &madctl, 1));
+        ESP_LOGI(
+            TAG,
+            "Forced MADCTL=0x%02X  FB_MIRROR_X=%d FB_MIRROR_Y=%d",
+            madctl,
+            BOARD_LCD_FB_MIRROR_X,
+            BOARD_LCD_FB_MIRROR_Y);
+    }
+#else
+    ESP_LOGI(
+        TAG,
+        "MADCTL via helpers swap=%d mx=%d my=%d  FB_MIRROR_X=%d Y=%d",
+        (int)BOARD_LCD_SWAP_XY,
+        (int)BOARD_LCD_MIRROR_X,
+        (int)BOARD_LCD_MIRROR_Y,
+        BOARD_LCD_FB_MIRROR_X,
+        BOARD_LCD_FB_MIRROR_Y);
+#endif
+
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
     fg_color = BOARD_LCD_FG_COLOR;
@@ -329,27 +370,46 @@ void furi_hal_display_commit(const uint8_t* data, uint32_t size) {
             stripe_h = SCALED_HEIGHT - stripe_y;
         }
 
-        /* Render stripe into buffer */
+        /* Render into a FULL-WIDTH stripe. Some ILI9341 MADCTL/MX combos place
+         * partial-width CASET rectangles incorrectly, which looks like the UI
+         * (especially text) is mirrored. Full-width writes avoid that. */
         for(size_t row = 0; row < stripe_h; row++) {
             const size_t sy = stripe_y + row;
-            const uint8_t mono_y = y_scale_lut[sy];
+#if BOARD_LCD_FB_MIRROR_Y
+            const size_t sy_src = (SCALED_HEIGHT - 1) - sy;
+#else
+            const size_t sy_src = sy;
+#endif
+            const uint8_t mono_y = y_scale_lut[sy_src];
             const size_t page = mono_y >> 3;
             const uint8_t bit_mask = 1U << (mono_y & 0x07);
-            uint16_t* dst = &rgb565_buf[row * SCALED_WIDTH];
+            uint16_t* dst = &rgb565_buf[row * LCD_H_RES];
+
+            for(size_t x = 0; x < LCD_H_RES; x++) {
+                dst[x] = fg_color;
+            }
 
             for(size_t sx = 0; sx < SCALED_WIDTH; sx++) {
                 const uint8_t mono_x = x_scale_lut[sx];
                 const bool pixel_set = (data[page * FB_WIDTH + mono_x] & bit_mask) != 0;
-                dst[sx] = pixel_set ? bg_color : fg_color;
+                const uint16_t color = pixel_set ? bg_color : fg_color;
+#if BOARD_LCD_FB_MIRROR_X
+                /* Place content mirrored within the full line */
+                const size_t dx = (LCD_H_RES - 1) - (MARGIN_X + sx);
+#else
+                const size_t dx = MARGIN_X + sx;
+#endif
+                dst[dx] = color;
             }
         }
 
-        /* DMA send this stripe */
         furi_hal_display_prepare_flush();
         esp_lcd_panel_draw_bitmap(
             panel_handle,
-            MARGIN_X, MARGIN_Y + stripe_y,
-            MARGIN_X + SCALED_WIDTH, MARGIN_Y + stripe_y + stripe_h,
+            0,
+            MARGIN_Y + stripe_y,
+            LCD_H_RES,
+            MARGIN_Y + stripe_y + stripe_h,
             rgb565_buf);
         furi_hal_display_wait_flush();
     }

@@ -1,10 +1,17 @@
 # Board selection: pass -DFLIPPER_BOARD=<board_name> to idf.py build
 # Available boards (see boards/ directory and targets/ directory):
-#   waveshare_c6_1.9        - Waveshare ESP32-C6-LCD-1.9 (default, touch input)
-#   waveshare_c6_1.47       - Waveshare ESP32-C6-LCD-1.47 (touch input + IMU)
-#   lilygo_t_embed_cc1101   - LilyGo T-Embed CC1101 (ESP32-S3, encoder input, CC1101/NFC/IR)
-if(NOT DEFINED FLIPPER_BOARD)
-    set(FLIPPER_BOARD "waveshare_c6_1.9" CACHE STRING "Target board for Flipper ESP32 port")
+#   waveshare_c6_1.9          - Waveshare ESP32-C6-LCD-1.9 (default, touch input)
+#   waveshare_c6_1.47         - Waveshare ESP32-C6-LCD-1.47 (touch input + IMU)
+#   lilygo_t_embed_cc1101     - LilyGo T-Embed CC1101 (ESP32-S3, encoder input, CC1101/NFC/IR)
+#   esp32_cyd_nm_rf_hat       - ESP32-2432S028 CYD classic + NM-RF-HAT (ILI9341, XPT2046)
+# Board selection (priority: ENV → -D/cache → default).
+# ENV is set by buildAndFlash_*.sh so early/late cmake passes stay consistent.
+if(DEFINED ENV{FLIPPER_BOARD} AND NOT "$ENV{FLIPPER_BOARD}" STREQUAL "")
+    set(FLIPPER_BOARD "$ENV{FLIPPER_BOARD}" CACHE STRING "Target board for Flipper ESP32 port" FORCE)
+elseif(NOT DEFINED FLIPPER_BOARD OR FLIPPER_BOARD STREQUAL "")
+    set(FLIPPER_BOARD "waveshare_c6_1.9" CACHE STRING "Target board for Flipper ESP32 port" FORCE)
+else()
+    set(FLIPPER_BOARD "${FLIPPER_BOARD}" CACHE STRING "Target board for Flipper ESP32 port" FORCE)
 endif()
 message(STATUS "Flipper board: ${FLIPPER_BOARD}")
 
@@ -32,6 +39,7 @@ set(FURI_HAL_SRCS
     "furi_hal_display.c"
     "furi_hal_spi_bus.c"
     "furi_hal_spi.c"
+    "furi_hal_rf_mux.c"
     "furi_hal_subghz.c"
     "furi_hal_nfc.c"
     "furi_hal_random.c"

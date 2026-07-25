@@ -8,7 +8,15 @@ extern "C" {
 #endif
 
 // Anzahl der Slots im Lock-freien Cred-Ring. Fixed size, intern alloziert.
+#include <sdkconfig.h>
+
+/* A full 32-entry ring costs roughly 12 KB. Keep a smaller history on the
+ * no-PSRAM classic ESP32 so the WiFi driver can reserve DMA RX buffers. */
+#if defined(CONFIG_IDF_TARGET_ESP32)
+#define WLAN_CRED_RING_SIZE 8
+#else
 #define WLAN_CRED_RING_SIZE 32
+#endif
 // Maximale Länge der Text-Felder (host / user / secret), inkl. NUL.
 #define WLAN_CRED_STR_MAX 64
 #define WLAN_CRED_PROTO_MAX 8

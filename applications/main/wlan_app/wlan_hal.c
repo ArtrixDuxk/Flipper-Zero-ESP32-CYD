@@ -6,6 +6,7 @@
 #include <esp_event.h>
 #include <esp_log.h>
 #include <esp_heap_caps.h>
+#include <esp_bt.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
@@ -15,9 +16,9 @@
 #include <stdlib.h>
 
 #define TAG "WlanHal"
-// Worker macht esp_wifi/lwIP-Calls; 4096 Words (16 KB) statt 8192 (32 KB),
-// um internes RAM für esp_wifi_init zu sparen. Bei Stack-Overflow erhöhen.
-#define WLAN_HAL_WORKER_STACK 4096
+/* ESP-IDF expresses task stack depth in bytes (unlike vanilla FreeRTOS). */
+#define WLAN_HAL_WORKER_STACK_BYTES 3072
+#define WLAN_HAL_WIFI_RESERVE_BYTES 24576
 
 typedef enum {
     WCMD_INIT_START,
@@ -74,6 +75,7 @@ typedef struct {
 } WlanCmd;
 
 static bool s_started = false;
+static void* s_wifi_reserve = NULL;
 static bool s_bt_was_on = false;
 static bool s_netif_inited = false;
 static esp_netif_t* s_netif_sta = NULL;
@@ -82,11 +84,47 @@ static volatile bool s_wifi_auto_reconnect = false;
 static bool s_event_handlers_registered = false;
 static volatile uint32_t s_own_ip = 0;
 static volatile uint32_t s_own_netmask = 0;
+#if defined(CONFIG_BT_ENABLED)
+static bool s_btdm_mem_released = false;
+#endif
+
+void wlan_hal_reserve_memory(void) {
+    if(s_wifi_reserve) return;
+    s_wifi_reserve = heap_caps_malloc(
+        WLAN_HAL_WIFI_RESERVE_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    ESP_LOGI(TAG, "WiFi RAM reserve: %s", s_wifi_reserve ? "ready" : "unavailable");
+}
+
+void wlan_hal_release_memory_reserve(void) {
+    free(s_wifi_reserve);
+    s_wifi_reserve = NULL;
+}
+
+/* Static scan buffer — avoid malloc after wifi_init ate the heap. */
+#define WLAN_SCAN_STATIC_MAX 16
+static wifi_ap_record_t s_scan_static[WLAN_SCAN_STATIC_MAX];
 
 static QueueHandle_t s_cmd_queue = NULL;
 static TaskHandle_t s_worker_task = NULL;
 static StackType_t* s_worker_stack = NULL;
 static StaticTask_t s_worker_buf;
+
+#if defined(CONFIG_BT_ENABLED)
+/** Free unused classic-BT controller pool for WiFi. Do NOT release full BTDM
+ *  while coex is linked — that path has caused panics on classic ESP32. */
+static void wlan_release_bt_memory_for_wifi(void) {
+    if(s_btdm_mem_released) return;
+    esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+    ESP_LOGW(
+        TAG,
+        "BT classic mem_release: %s (heap int=%u largest=%u)",
+        esp_err_to_name(err),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    /* Treat any result as done — never call twice. */
+    s_btdm_mem_released = true;
+}
+#endif
 
 static void wlan_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     UNUSED(arg);
@@ -117,13 +155,47 @@ static void wlan_worker_fn(void* arg) {
         esp_err_t err;
 
         switch(cmd.type) {
-        case WCMD_INIT_START:
+        case WCMD_INIT_START: {
+            size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+            size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+            ESP_LOGW(TAG, "WiFi init free heap int=%u largest=%u",
+                     (unsigned)free_int, (unsigned)largest);
+
+#if defined(CONFIG_BT_ENABLED)
+            wlan_release_bt_memory_for_wifi();
+            free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+            largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+#endif
+
+            /* Soft gate only — previous 40KB threshold blocked WiFi entirely
+             * on the RAM-starved GUI, leaving an empty AP list with no reboot. */
+            if(largest < 12000 || free_int < 20000) {
+                ESP_LOGE(
+                    TAG,
+                    "Not enough RAM for WiFi (free=%u largest=%u)",
+                    (unsigned)free_int,
+                    (unsigned)largest);
+                ok = false;
+                break;
+            }
+
             if(!s_netif_inited) {
-                esp_netif_init();
-                esp_event_loop_create_default();
+                err = esp_netif_init();
+                if(err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+                    ESP_LOGE(TAG, "netif_init: %s", esp_err_to_name(err));
+                }
+                err = esp_event_loop_create_default();
+                if(err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+                    ESP_LOGE(TAG, "event_loop: %s", esp_err_to_name(err));
+                }
                 s_netif_sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
                 if(!s_netif_sta) {
                     s_netif_sta = esp_netif_create_default_wifi_sta();
+                }
+                if(!s_netif_sta) {
+                    ESP_LOGE(TAG, "create_default_wifi_sta failed");
+                    ok = false;
+                    break;
                 }
                 s_netif_inited = true;
             }
@@ -135,26 +207,67 @@ static void wlan_worker_fn(void* arg) {
                 s_event_handlers_registered = true;
             }
 
+            /* Compact but enough RX MGMT to catch beacons during scan. */
             wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
             cfg.static_rx_buf_num = 2;
             cfg.dynamic_rx_buf_num = 4;
-            cfg.dynamic_tx_buf_num = 8;
+            cfg.dynamic_tx_buf_num = 4;
+            cfg.cache_tx_buf_num = 0;
+            cfg.rx_mgmt_buf_num = 4;
+            cfg.mgmt_sbuf_num = 6;
+            cfg.ampdu_rx_enable = 0;
+            cfg.ampdu_tx_enable = 0;
+            cfg.amsdu_tx_enable = 0;
+            cfg.nvs_enable = 0;
+            cfg.sta_disconnected_pm = false;
 
             err = esp_wifi_init(&cfg);
             if(err != ESP_OK) {
-                ESP_LOGE(TAG, "wifi_init: %s", esp_err_to_name(err));
+                ESP_LOGE(
+                    TAG,
+                    "wifi_init failed: %s (heap free=%u largest=%u)",
+                    esp_err_to_name(err),
+                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
                 ok = false;
                 break;
             }
             esp_wifi_set_storage(WIFI_STORAGE_RAM);
-            esp_wifi_set_mode(WIFI_MODE_STA);
+            err = esp_wifi_set_mode(WIFI_MODE_STA);
+            if(err != ESP_OK) {
+                ESP_LOGE(TAG, "set_mode STA: %s", esp_err_to_name(err));
+                esp_wifi_deinit();
+                ok = false;
+                break;
+            }
+
+            {
+                wifi_country_t country = {
+                    .cc = "01",
+                    .schan = 1,
+                    .nchan = 13,
+                    .max_tx_power = 20,
+                    .policy = WIFI_COUNTRY_POLICY_AUTO,
+                };
+                (void)esp_wifi_set_country(&country);
+            }
+
             err = esp_wifi_start();
             if(err != ESP_OK) {
                 ESP_LOGE(TAG, "wifi_start: %s", esp_err_to_name(err));
                 esp_wifi_deinit();
                 ok = false;
+                break;
             }
+            esp_wifi_set_ps(WIFI_PS_NONE);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            ESP_LOGW(
+                TAG,
+                "WiFi STA up, heap int=%u largest=%u",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
             break;
+        }
 
         case WCMD_STOP_DEINIT:
             s_wifi_auto_reconnect = false;
@@ -249,28 +362,86 @@ static void wlan_worker_fn(void* arg) {
         }
 
         case WCMD_SCAN: {
-            err = esp_wifi_scan_start(cmd.scan.config, true);
-            if(err != ESP_OK) {
-                ESP_LOGE(TAG, "scan: %s", esp_err_to_name(err));
-                *cmd.scan.out_count = 0;
-                *cmd.scan.out_records = NULL;
-                ok = false;
-                break;
+            esp_wifi_set_ps(WIFI_PS_NONE);
+            vTaskDelay(pdMS_TO_TICKS(100));
+
+            uint16_t total = 0;
+            memset(s_scan_static, 0, sizeof(s_scan_static));
+
+            /* Full-band active scan first. */
+            wifi_scan_config_t sc = {0};
+            sc.show_hidden = true;
+            sc.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+            sc.scan_time.active.min = 100;
+            sc.scan_time.active.max = 300;
+            err = esp_wifi_scan_start(&sc, true);
+            ESP_LOGW(TAG, "full active scan: %s", esp_err_to_name(err));
+            if(err == ESP_OK) {
+                uint16_t n = 0;
+                esp_wifi_scan_get_ap_num(&n);
+                if(n > WLAN_SCAN_STATIC_MAX) n = WLAN_SCAN_STATIC_MAX;
+                if(n > 0) {
+                    esp_wifi_scan_get_ap_records(&n, s_scan_static);
+                    total = n;
+                }
             }
-            uint16_t count = 0;
-            esp_wifi_scan_get_ap_num(&count);
+
+            /* If empty, hop channels 1..13 (more reliable with tiny RX buffers). */
+            if(total == 0) {
+                ESP_LOGW(TAG, "full scan empty — channel hop 1..13");
+                for(uint8_t ch = 1; ch <= 13 && total < WLAN_SCAN_STATIC_MAX; ch++) {
+                    wifi_scan_config_t chsc = {0};
+                    chsc.channel = ch;
+                    chsc.show_hidden = true;
+                    chsc.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+                    chsc.scan_time.active.min = 120;
+                    chsc.scan_time.active.max = 250;
+                    err = esp_wifi_scan_start(&chsc, true);
+                    if(err != ESP_OK) {
+                        ESP_LOGW(TAG, "ch %u scan: %s", ch, esp_err_to_name(err));
+                        continue;
+                    }
+                    wifi_ap_record_t tmp[8];
+                    uint16_t n = 8;
+                    if(esp_wifi_scan_get_ap_records(&n, tmp) != ESP_OK || n == 0) continue;
+                    for(uint16_t i = 0; i < n && total < WLAN_SCAN_STATIC_MAX; i++) {
+                        bool dup = false;
+                        for(uint16_t j = 0; j < total; j++) {
+                            if(memcmp(s_scan_static[j].bssid, tmp[i].bssid, 6) == 0) {
+                                dup = true;
+                                if(tmp[i].rssi > s_scan_static[j].rssi) {
+                                    s_scan_static[j] = tmp[i];
+                                }
+                                break;
+                            }
+                        }
+                        if(!dup) {
+                            s_scan_static[total++] = tmp[i];
+                        }
+                    }
+                }
+            }
+
+            ESP_LOGW(TAG, "scan total APs=%u", (unsigned)total);
+
+            uint16_t count = total;
             if(count > cmd.scan.max_count) count = cmd.scan.max_count;
+
             if(count > 0) {
-                *cmd.scan.out_records = malloc(count * sizeof(wifi_ap_record_t));
+                size_t nbytes = (size_t)count * sizeof(wifi_ap_record_t);
+                *cmd.scan.out_records = malloc(nbytes);
                 if(*cmd.scan.out_records) {
-                    esp_wifi_scan_get_ap_records(&count, *cmd.scan.out_records);
+                    memcpy(*cmd.scan.out_records, s_scan_static, nbytes);
                 } else {
+                    ESP_LOGE(TAG, "scan: malloc %u failed", (unsigned)nbytes);
                     count = 0;
+                    *cmd.scan.out_records = NULL;
                 }
             } else {
                 *cmd.scan.out_records = NULL;
             }
             *cmd.scan.out_count = count;
+            if(count == 0) ok = false;
             break;
         }
 
@@ -297,7 +468,7 @@ static bool wlan_ensure_worker(void) {
     if(!s_cmd_queue) return false;
 
     s_worker_stack = heap_caps_malloc(
-        WLAN_HAL_WORKER_STACK * sizeof(StackType_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        WLAN_HAL_WORKER_STACK_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if(!s_worker_stack) {
         vQueueDelete(s_cmd_queue);
         s_cmd_queue = NULL;
@@ -306,7 +477,7 @@ static bool wlan_ensure_worker(void) {
     }
 
     s_worker_task = xTaskCreateStaticPinnedToCore(
-        wlan_worker_fn, "WlanWorker", WLAN_HAL_WORKER_STACK,
+        wlan_worker_fn, "WlanWorker", WLAN_HAL_WORKER_STACK_BYTES,
         NULL, 5, s_worker_stack, &s_worker_buf, 0);
     return s_worker_task != NULL;
 }
@@ -324,17 +495,40 @@ static void wlan_send_cmd_sync(WlanCmd* cmd) {
     }
 }
 
+static void wlan_release_worker(void) {
+    /* wlan_hal_stop() has synchronously drained the deinit command, so the
+     * worker is blocked on its queue here. Delete it from this task before
+     * releasing its static stack; a self-delete acknowledgement would race
+     * with the caller freeing that same stack. */
+    if(s_worker_task) vTaskDelete(s_worker_task);
+    s_worker_task = NULL;
+    if(s_cmd_queue) {
+        vQueueDelete(s_cmd_queue);
+        s_cmd_queue = NULL;
+    }
+    free(s_worker_stack);
+    s_worker_stack = NULL;
+}
+
 bool wlan_hal_start(void) {
     if(s_started) return true;
 
-    Bt* bt = furi_record_open(RECORD_BT);
-    s_bt_was_on = bt_is_enabled(bt);
-    if(s_bt_was_on) {
-        bt_stop_stack(bt);
+    /* Release the boot-time reserve at the last possible moment, preserving
+     * one large contiguous block for the driver's DMA/RX allocations. */
+    if(s_wifi_reserve) {
+        free(s_wifi_reserve);
+        s_wifi_reserve = NULL;
     }
-    furi_record_close(RECORD_BT);
 
-    if(!wlan_ensure_worker()) return false;
+    /* Do not call bt_stop_stack here — on classic ESP32 BT was never started
+     * and stop/deinit of idle controller was a crash risk. Worker only releases
+     * classic-BT memory pool. */
+    s_bt_was_on = false;
+
+    if(!wlan_ensure_worker()) {
+        ESP_LOGE(TAG, "wlan_hal_start: worker create failed");
+        return false;
+    }
 
     volatile bool result = false;
     WlanCmd cmd = {.type = WCMD_INIT_START, .result = &result};
@@ -342,7 +536,9 @@ bool wlan_hal_start(void) {
 
     if(result) {
         s_started = true;
-        ESP_LOGI(TAG, "WiFi started");
+        ESP_LOGW(TAG, "WiFi started OK");
+    } else {
+        ESP_LOGE(TAG, "WiFi started FAILED (no reboot — check heap logs)");
     }
     return result;
 }
@@ -352,15 +548,22 @@ void wlan_hal_stop(void) {
         WlanCmd cmd = {.type = WCMD_STOP_DEINIT};
         wlan_send_cmd_sync(&cmd);
         s_started = false;
-        ESP_LOGI(TAG, "WiFi stopped");
+        ESP_LOGW(TAG, "WiFi stopped");
     }
 
+    /* The worker's internal stack is only useful while a WiFi operation can
+     * run. Recreate it on the next start instead of charging every other app
+     * roughly 3 KiB for the lifetime of qFlipper. */
+    wlan_release_worker();
+
+#if !defined(CONFIG_IDF_TARGET_ESP32)
     if(s_bt_was_on) {
         Bt* bt = furi_record_open(RECORD_BT);
         bt_start_stack(bt);
         furi_record_close(RECORD_BT);
         s_bt_was_on = false;
     }
+#endif
 }
 
 bool wlan_hal_is_started(void) {
@@ -481,13 +684,26 @@ bool wlan_hal_run_in_worker(WlanHalWorkerFn fn, void* arg) {
 
 void wlan_hal_scan(wifi_ap_record_t** out_records, uint16_t* out_count, uint16_t max_count) {
     if(!s_started) {
+        ESP_LOGW(TAG, "scan ignored — WiFi not started");
         if(out_records) *out_records = NULL;
         *out_count = 0;
         return;
     }
+    /* Cap request size on RAM-starved boards so malloc can succeed. */
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    if(max_count > 24) max_count = 24;
+#endif
     wifi_scan_config_t scan_config = {
-        .ssid = NULL, .bssid = NULL, .channel = 0,
-        .show_hidden = true, .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,
+        .show_hidden = true,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time =
+            {
+                .active = {.min = 120, .max = 300},
+                .passive = 360,
+            },
     };
     WlanCmd cmd = {
         .type = WCMD_SCAN,

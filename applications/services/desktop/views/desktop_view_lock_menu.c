@@ -8,7 +8,7 @@
 #define LOCK_MENU_MAX_ITEMS 6
 
 // Menu items and events are built dynamically from the current toggle states:
-//   qFlipper       Enable/Disable (background RPC bridge)   [USB-OTG only]
+//   qFlipper       Enable/Disable (background RPC bridge)   [USB-OTG or CYD UART]
 //   USB-Storage    open the full-screen mass-storage scene  [USB-OTG only]
 //   Bluetooth      Enable/Disable
 //   Mesh: Off/Master/Client    cycle the mesh role
@@ -38,10 +38,11 @@ static void lock_menu_scroll_to(uint8_t idx) {
 static void lock_menu_build_items(bool usb_available, bool qflipper_on, bool bt_on) {
     s_item_count = 0;
 
+    s_items[s_item_count++] = (LockMenuItem){
+        qflipper_on ? "Disable qFlipper" : "Enable qFlipper",
+        DesktopLockMenuEventQflipperToggle};
+
     if(usb_available) {
-        s_items[s_item_count++] = (LockMenuItem){
-            qflipper_on ? "Disable qFlipper" : "Enable qFlipper",
-            DesktopLockMenuEventQflipperToggle};
         s_items[s_item_count++] = (LockMenuItem){"USB-Storage", DesktopLockMenuEventUsbStorage};
     }
 

@@ -126,8 +126,6 @@ static bool bubble_animation_input_callback(InputEvent* event, void* context) {
     BubbleAnimationView* animation_view = context;
     bool consumed = false;
 
-    esp_rom_printf("\r\n[BANIM] key=%d type=%d\r\n", event->key, event->type);
-
     if(event->type == InputTypePress) {
         bubble_animation_activate(animation_view, false);
     }

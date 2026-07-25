@@ -220,25 +220,38 @@ static const FlipperInternalApplication*
     return NULL;
 }
 
-static void loader_start_internal_app(
+static bool loader_start_internal_app(
     Loader* loader,
     const FlipperInternalApplication* app,
     const char* args) {
     FURI_LOG_I(TAG, "Starting %s", app->name);
+    loader->app.heap_before = memmgr_get_free_heap();
+    strlcpy(loader->app.name, app->name, sizeof(loader->app.name));
 
     furi_assert(loader->app.args == NULL);
     if(args && strlen(args) > 0) {
         loader->app.args = strdup(args);
+        if(!loader->app.args) return false;
     }
 
     loader->app.thread =
-        furi_thread_alloc_ex(app->name, app->stack_size, app->app, loader->app.args);
+        furi_thread_try_alloc_ex(app->name, app->stack_size, app->app, loader->app.args);
+
+    if(!loader->app.thread) {
+        free(loader->app.args);
+        loader->app.args = NULL;
+        loader->app.heap_before = 0;
+        loader->app.name[0] = '\0';
+        FURI_LOG_E(TAG, "Not enough RAM to start %s", app->name);
+        return false;
+    }
 
     furi_thread_set_appid(loader->app.thread, app->appid);
     furi_thread_set_state_context(loader->app.thread, loader);
     furi_thread_set_state_callback(loader->app.thread, loader_thread_state_callback);
 
     furi_thread_start(loader->app.thread);
+    return true;
 }
 
 static bool loader_is_external_fap_path(const char* name) {
@@ -254,6 +267,8 @@ static LoaderStatus loader_start_external_fap(
     const char* args,
     FuriString* error_message) {
     LoaderStatus status = LoaderStatusErrorInternal;
+    loader->app.heap_before = memmgr_get_free_heap();
+    strlcpy(loader->app.name, path, sizeof(loader->app.name));
     Storage* storage = furi_record_open(RECORD_STORAGE);
     FlipperApplication* app = flipper_application_alloc(storage, firmware_api_interface);
 
@@ -348,6 +363,8 @@ static LoaderStatus loader_start_external_fap(
         if(app) {
             flipper_application_free(app);
         }
+        loader->app.heap_before = 0;
+        loader->app.name[0] = '\0';
     }
 
     furi_record_close(RECORD_STORAGE);
@@ -394,8 +411,6 @@ static LoaderMessageLoaderStatusResult loader_do_start_by_name(
     LoaderMessageLoaderStatusResult status;
     status.value = LoaderStatusOk;
 
-    esp_rom_printf("\r\n[LDR] start_by_name name='%s'\r\n", name ? name : "(null)");
-
     if(name == NULL) return status;
 
     do {
@@ -417,13 +432,12 @@ static LoaderMessageLoaderStatusResult loader_do_start_by_name(
         event.type = LoaderEventTypeApplicationBeforeLoad;
         furi_pubsub_publish(loader->pubsub, &event);
 
-        const FlipperInternalApplication* app =
-            loader_find_application_by_name(name);
-        esp_rom_printf("[LDR] find_app('%s')=%p\r\n", name, (void*)app);
+        const FlipperInternalApplication* app = loader_find_application_by_name(name);
         if(app) {
-            esp_rom_printf("[LDR] found name='%s' appid='%s' stack=%u\r\n",
-                app->name, app->appid, (unsigned)app->stack_size);
-            loader_start_internal_app(loader, app, args);
+            if(!loader_start_internal_app(loader, app, args)) {
+                status.value = LoaderStatusErrorInternal;
+                if(error_message) furi_string_set(error_message, "Not enough RAM to start app");
+            }
             break;
         }
 
@@ -476,8 +490,20 @@ static void loader_do_app_closed(Loader* loader) {
     }
     loader->app.thread = NULL;
 
-    FURI_LOG_I(
-        TAG, "Application stopped. Free heap: %zu", memmgr_get_free_heap());
+    const size_t heap_after = memmgr_get_free_heap();
+    if(loader->app.heap_before && (heap_after + 2048u < loader->app.heap_before)) {
+        FURI_LOG_W(
+            TAG,
+            "Possible leak after %s: before=%zu after=%zu lost=%zu",
+            loader->app.name,
+            loader->app.heap_before,
+            heap_after,
+            loader->app.heap_before - heap_after);
+    } else {
+        FURI_LOG_I(TAG, "Application stopped. Free heap: %zu", heap_after);
+    }
+    loader->app.heap_before = 0;
+    loader->app.name[0] = '\0';
 
     LoaderEvent event;
     event.type = LoaderEventTypeApplicationStopped;

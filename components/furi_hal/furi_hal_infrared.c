@@ -20,6 +20,7 @@
 #include <esp_heap_caps.h>
 
 #include BOARD_INCLUDE
+#include "furi_hal_rf_mux.h"
 
 /* ---- Configuration ---- */
 
@@ -172,6 +173,9 @@ void furi_hal_infrared_async_rx_start(void) {
     FURI_LOG_E("IR", "Board has no IR support");
     return;
 #endif
+
+    /* HAT: free IO22/27 from SPI CS / I2C before RMT takes them */
+    furi_hal_rf_mux_claim(FuriHalRfMuxPathIr);
 
     /* Configure RMT RX channel */
     rmt_rx_channel_config_t rx_chan_config = {
@@ -415,6 +419,8 @@ void furi_hal_infrared_async_tx_start(uint32_t freq, float duty_cycle) {
     FURI_LOG_E("IR", "Board has no IR support");
     return;
 #endif
+
+    furi_hal_rf_mux_claim(FuriHalRfMuxPathIr);
 
     ir_tx.carrier_freq = freq;
     ir_tx.duty_cycle = duty_cycle;

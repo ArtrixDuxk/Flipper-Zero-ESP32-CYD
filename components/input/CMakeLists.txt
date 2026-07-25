@@ -1,6 +1,10 @@
-# Target-specific input driver selection
-if(NOT DEFINED FLIPPER_BOARD)
-    set(FLIPPER_BOARD "waveshare_c6_1.9" CACHE STRING "Target board")
+# Target-specific input driver selection (must match furi_hal board)
+if(DEFINED ENV{FLIPPER_BOARD} AND NOT "$ENV{FLIPPER_BOARD}" STREQUAL "")
+    set(FLIPPER_BOARD "$ENV{FLIPPER_BOARD}" CACHE STRING "Target board" FORCE)
+elseif(NOT DEFINED FLIPPER_BOARD OR FLIPPER_BOARD STREQUAL "")
+    set(FLIPPER_BOARD "waveshare_c6_1.9" CACHE STRING "Target board" FORCE)
+else()
+    set(FLIPPER_BOARD "${FLIPPER_BOARD}" CACHE STRING "Target board" FORCE)
 endif()
 
 set(TARGET_INPUT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../targets/${FLIPPER_BOARD}")

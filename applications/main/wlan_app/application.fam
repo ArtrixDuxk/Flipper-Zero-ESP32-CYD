@@ -3,7 +3,12 @@ App(
     name="WiFi",
     apptype=FlipperAppType.MENUEXTERNAL,
     entry_point="wlan_app",
-    stack_size=8 * 1024,
+    # The ESP32 port keeps the WiFi driver and qFlipper screen stream alive at
+    # the same time.  An 8 KiB contiguous internal-RAM allocation can fail at
+    # app launch on the 4 MB/no-PSRAM CYD, before wlan_app() is ever entered.
+    # WiFi work runs in wlan_hal's dedicated worker; this thread is the GUI
+    # dispatcher and fits the port's enforced 4 KiB minimum.
+    stack_size=4 * 1024,
     icon="A_Sub1ghz_14",
     order=67,
     fap_libs=["assets"],

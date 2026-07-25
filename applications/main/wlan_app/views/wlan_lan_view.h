@@ -1,11 +1,18 @@
 #pragma once
 
+#include "sdkconfig.h"
+
 #include <gui/view.h>
 #include <gui/view_dispatcher.h>
 #include <gui/icon.h>
 
 #define WLAN_LAN_VIEW_LABEL_MAX 28
+#if CONFIG_IDF_TARGET_ESP32 && !CONFIG_SPIRAM
+/* 32 discovered devices plus action/separator rows. */
+#define WLAN_LAN_VIEW_MAX_ITEMS 40
+#else
 #define WLAN_LAN_VIEW_MAX_ITEMS 80
+#endif
 #define WLAN_LAN_VIEW_MAX_MENU_ITEMS 6
 #define WLAN_LAN_VIEW_MENU_LABEL_MAX 20
 

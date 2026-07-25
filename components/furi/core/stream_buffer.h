@@ -35,6 +35,16 @@ typedef struct FuriStreamBuffer FuriStreamBuffer;
 FuriStreamBuffer* furi_stream_buffer_alloc(size_t size, size_t trigger_level);
 
 /**
+ * @brief Try to allocate a stream buffer instance.
+ *
+ * Unlike furi_stream_buffer_alloc(), low memory is reported to the caller
+ * instead of aborting the firmware.
+ *
+ * @return The stream buffer instance, or NULL when allocation fails.
+ */
+FuriStreamBuffer* furi_stream_buffer_try_alloc(size_t size, size_t trigger_level);
+
+/**
  * @brief Free stream buffer instance
  * 
  * @param stream_buffer The stream buffer instance.

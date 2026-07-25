@@ -1,5 +1,15 @@
 #pragma once
 
+#include <sdkconfig.h>
+
+/* Classic ESP32 (CYD etc.): no PSRAM — SubGHz full stack (brute/jammer/playlist
+ * + fat history) OOMs and reboots on open. Lite keeps Read / RAW / Saved. */
+#if defined(CONFIG_IDF_TARGET_ESP32)
+#define SUBGHZ_LITE_RAM 1
+#else
+#define SUBGHZ_LITE_RAM 0
+#endif
+
 #include "helpers/subghz_types.h"
 #include "helpers/subghz_gen_info.h"
 #include <lib/subghz/types.h>

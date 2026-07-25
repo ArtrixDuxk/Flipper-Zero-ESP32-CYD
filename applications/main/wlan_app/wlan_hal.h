@@ -9,6 +9,14 @@
  *  läuft oder erfolgreich initialisiert wurde. */
 bool wlan_hal_start(void);
 
+/* Hold a contiguous internal-RAM block before qFlipper screen streaming
+ * starts; wlan_hal_start() releases it immediately before esp_wifi_init(). */
+void wlan_hal_reserve_memory(void);
+
+/** Release an unused WiFi startup reserve. Memory-intensive non-WiFi apps use
+ * this before allocating their workers, then recreate the reserve on exit. */
+void wlan_hal_release_memory_reserve(void);
+
 /** Beende den WiFi-Stack und stelle BT wieder her. Idempotent. */
 void wlan_hal_stop(void);
 

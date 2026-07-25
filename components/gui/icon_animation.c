@@ -72,12 +72,16 @@ void icon_animation_start(IconAnimation* instance) {
 
     if(!instance->animating) {
         instance->animating = true;
-        furi_assert(instance->icon->frame_rate);
-        if (instance->icon->frame_rate != 0) 
-            furi_check(
-                furi_timer_start(
-                    instance->timer,
-                    (furi_kernel_get_tick_frequency() / instance->icon->frame_rate)) == FuriStatusOk);
+        /* Static icons use frame_rate == 0 — skip timer. Never crash if the
+         * timer service is under memory pressure (common on classic ESP32). */
+        if(instance->icon && instance->icon->frame_rate != 0) {
+            const uint32_t period =
+                furi_kernel_get_tick_frequency() / instance->icon->frame_rate;
+            if(furi_timer_start(instance->timer, period) != FuriStatusOk) {
+                /* Leave animating=true so we still show frame 0; no reboot. */
+                instance->animating = false;
+            }
+        }
     }
 }
 

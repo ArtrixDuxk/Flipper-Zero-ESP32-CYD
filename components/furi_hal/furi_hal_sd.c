@@ -11,6 +11,7 @@
 #include "furi_hal_resources.h"
 #include "furi_hal_spi.h"
 #include "furi_hal_spi_bus.h"
+#include "boards/board.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -21,12 +22,17 @@
 #include <esp_memory_utils.h>
 #include <sdmmc_cmd.h>
 #include <driver/sdspi_host.h>
+#include <driver/spi_master.h>
 
 static const char* TAG = "FuriHalSd";
 
+#ifndef BOARD_RF_SPI_HOST
+#define BOARD_RF_SPI_HOST SPI2_HOST
+#endif
+
 #define SD_FATFS_DRIVE "0:"
-#define SD_SPI_HOST    SPI2_HOST
-#define SD_MAX_FREQ    (20 * 1000) /* 20 MHz — conservative for shared bus */
+#define SD_SPI_HOST    BOARD_RF_SPI_HOST
+#define SD_MAX_FREQ    (10 * 1000) /* CYD SD/RF shared traces: prioritize write integrity */
 #define SD_BOUNCE_SECTORS 8 /* 4 KiB persistent DMA bounce buffer */
 
 static sdmmc_card_t* sd_card = NULL;
@@ -539,13 +545,60 @@ static bool sd_prepare_card(void) {
        sd_host_conflicts_with(&furi_hal_spi_bus_subghz)) {
         ESP_LOGW(
             TAG,
-            "Skipping SD init because SPI2_HOST is reserved for the external CC1101 pin set");
+            "Skipping SD init because SPI host is reserved for a conflicting pin set");
         return false;
     }
 
     sd_release_host();
 
-    ESP_LOGI(TAG, "Initializing SD card on SPI2_HOST, CS=GPIO%d", gpio_sdcard_cs.pin);
+    ESP_LOGI(
+        TAG,
+        "Initializing SD card on SPI host %d, CS=GPIO%d",
+        (int)SD_SPI_HOST,
+        gpio_sdcard_cs.pin);
+
+    /* Ensure the RF/SD SPI bus is initialized. On shared-LCD boards the display
+     * already set up SPI2; on CYD classic the LCD is HSPI and RF+SD are VSPI. */
+    {
+        int sd_mosi = -1;
+        int sd_sck = -1;
+#if defined(BOARD_PIN_SD_MOSI)
+        sd_mosi = (int)BOARD_PIN_SD_MOSI;
+#endif
+#if defined(BOARD_PIN_SD_SCK)
+        sd_sck = (int)BOARD_PIN_SD_SCK;
+#endif
+#if defined(BOARD_PIN_CC1101_MOSI)
+        if(sd_mosi < 0 && BOARD_PIN_CC1101_MOSI != UINT16_MAX) {
+            sd_mosi = (int)BOARD_PIN_CC1101_MOSI;
+        }
+#endif
+#if defined(BOARD_PIN_CC1101_SCK)
+        if(sd_sck < 0 && BOARD_PIN_CC1101_SCK != UINT16_MAX) {
+            sd_sck = (int)BOARD_PIN_CC1101_SCK;
+        }
+#endif
+        /* Fallback: same pins as the LCD bus (T-Embed / Waveshare shared SPI). */
+        if(sd_mosi < 0) sd_mosi = (int)gpio_lcd_din.pin;
+        if(sd_sck < 0) sd_sck = (int)gpio_lcd_clk.pin;
+
+        spi_bus_config_t bus_cfg = {
+            .mosi_io_num = sd_mosi,
+            .miso_io_num = (gpio_sdcard_miso.pin != UINT16_MAX) ? (int)gpio_sdcard_miso.pin : -1,
+            .sclk_io_num = sd_sck,
+            .quadwp_io_num = -1,
+            .quadhd_io_num = -1,
+            .max_transfer_sz = 4096,
+        };
+        esp_err_t bus_err = spi_bus_initialize(SD_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+        /* ESP_ERR_INVALID_STATE = bus already up (e.g. CC1101 shared VSPI) — OK */
+        if(bus_err == ESP_ERR_INVALID_STATE) {
+            ESP_LOGI(TAG, "SPI host %d already initialized (shared RF bus)", (int)SD_SPI_HOST);
+        } else if(bus_err != ESP_OK) {
+            ESP_LOGE(TAG, "spi_bus_initialize(%d) failed: %s", (int)SD_SPI_HOST, esp_err_to_name(bus_err));
+            return false;
+        }
+    }
 
     sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
     dev_cfg.host_id = SD_SPI_HOST;
@@ -555,6 +608,7 @@ static bool sd_prepare_card(void) {
     dev_cfg.gpio_int = SDSPI_SLOT_NO_INT;
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SD_SPI_HOST;
     host.max_freq_khz = SD_MAX_FREQ;
 
     ESP_LOGI(

@@ -5,6 +5,9 @@
 #include <lib/toolbox/path.h>
 #include <float_tools.h>
 #include <esp_heap_caps.h>
+#include <string.h>
+#include <applications/main/wlan_app/wlan_hal.h>
+#include <applications/services/desktop/helpers/qflipper_bridge.h>
 #include "subghz_i.h"
 
 #define TAG "SubGhzApp"
@@ -93,6 +96,11 @@ static void subghz_load_custom_presets(SubGhzSetting* setting) {
 
 SubGhz* subghz_alloc(bool alloc_for_tx_only) {
     SubGhz* subghz = malloc(sizeof(SubGhz));
+    if(!subghz) {
+        FURI_LOG_E(TAG, "OOM: SubGhz struct");
+        return NULL;
+    }
+    memset(subghz, 0, sizeof(SubGhz));
 
     subghz->file_path = furi_string_alloc();
     subghz->file_path_tmp = furi_string_alloc();
@@ -117,7 +125,22 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
 #if SUBGHZ_MEASURE_LOADING
     uint32_t load_ticks = furi_get_tick();
 #endif
+    /* HAT: user may have just set DIP to CC1101 — re-probe before radio init. */
+    if(!furi_hal_subghz_is_connected()) {
+        furi_hal_subghz_reprobe();
+    }
     subghz->txrx = subghz_txrx_alloc();
+    if(!subghz->txrx) {
+        FURI_LOG_E(TAG, "OOM: SubGHz radio worker");
+        furi_record_close(RECORD_NOTIFICATION);
+        scene_manager_free(subghz->scene_manager);
+        view_dispatcher_free(subghz->view_dispatcher);
+        furi_record_close(RECORD_GUI);
+        furi_string_free(subghz->file_path);
+        furi_string_free(subghz->file_path_tmp);
+        free(subghz);
+        return NULL;
+    }
 
     if(!alloc_for_tx_only) {
         // SubMenu
@@ -156,6 +179,7 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
         view_dispatcher_add_view(
             subghz->view_dispatcher, SubGhzViewIdWidget, widget_get_view(subghz->widget));
 
+#if !SUBGHZ_LITE_RAM
         // TPMS info view (shown instead of Widget when selecting a TPMS history entry)
         subghz->subghz_tpms_info = subghz_view_tpms_info_alloc();
         view_dispatcher_add_view(
@@ -169,6 +193,10 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
             subghz->view_dispatcher,
             SubGhzViewIdNumberInput,
             number_input_get_view(subghz->number_input));
+#else
+        subghz->subghz_tpms_info = NULL;
+        subghz->number_input = NULL;
+#endif
     }
     //Dialog
     subghz->dialogs = furi_record_open(RECORD_DIALOGS);
@@ -187,6 +215,7 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
             SubGhzViewIdVariableItemList,
             variable_item_list_get_view(subghz->variable_item_list));
 
+#if !SUBGHZ_LITE_RAM
         // Frequency Analyzer
         // View knows too much
         subghz->subghz_frequency_analyzer = subghz_frequency_analyzer_alloc(subghz->txrx);
@@ -194,6 +223,9 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
             subghz->view_dispatcher,
             SubGhzViewIdFrequencyAnalyzer,
             subghz_frequency_analyzer_get_view(subghz->subghz_frequency_analyzer));
+#else
+        subghz->subghz_frequency_analyzer = NULL;
+#endif
     }
     // Read RAW
     subghz->subghz_read_raw = subghz_read_raw_alloc(alloc_for_tx_only);
@@ -203,6 +235,7 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
         subghz_read_raw_get_view(subghz->subghz_read_raw));
 
     if(!alloc_for_tx_only) {
+#if !SUBGHZ_LITE_RAM
         // Jammer
         subghz->subghz_jammer = subghz_jammer_alloc();
         view_dispatcher_add_view(
@@ -236,6 +269,17 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
             subghz->view_dispatcher,
             SubGhzViewIdBfAttack,
             subbrute_attack_view_get_view(subghz->subbrute_attack_view));
+#else
+        subghz->subghz_jammer = NULL;
+        subghz->subghz_playlist = NULL;
+        subghz->subbrute_radio_device = NULL;
+        subghz->subbrute_device = NULL;
+        subghz->subbrute_worker = NULL;
+        subghz->subbrute_settings = NULL;
+        subghz->subbrute_main_view = NULL;
+        subghz->subbrute_attack_view = NULL;
+        FURI_LOG_I(TAG, "SubGHz lite RAM mode (ESP32 classic): no brute/jammer/playlist/analyzer");
+#endif
     }
 
     //init threshold rssi
@@ -332,6 +376,7 @@ void subghz_free(SubGhz* subghz, bool alloc_for_tx_only) {
         view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdWidget);
         widget_free(subghz->widget);
 
+#if !SUBGHZ_LITE_RAM
         // TPMS info view
         view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdTpmsInfo);
         subghz_view_tpms_info_free(subghz->subghz_tpms_info);
@@ -339,6 +384,7 @@ void subghz_free(SubGhz* subghz, bool alloc_for_tx_only) {
         // NumberInput
         view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdNumberInput);
         number_input_free(subghz->number_input);
+#endif
     }
     //Dialog
     furi_record_close(RECORD_DIALOGS);
@@ -351,11 +397,14 @@ void subghz_free(SubGhz* subghz, bool alloc_for_tx_only) {
         view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdVariableItemList);
         variable_item_list_free(subghz->variable_item_list);
 
+#if !SUBGHZ_LITE_RAM
         // Frequency Analyzer
         view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdFrequencyAnalyzer);
         subghz_frequency_analyzer_free(subghz->subghz_frequency_analyzer);
+#endif
     }
     if(!alloc_for_tx_only) {
+#if !SUBGHZ_LITE_RAM
         // SubBrute Bruteforcer
         view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdBfMain);
         subbrute_main_view_free(subghz->subbrute_main_view);
@@ -374,6 +423,7 @@ void subghz_free(SubGhz* subghz, bool alloc_for_tx_only) {
         // Playlist
         view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdPlaylist);
         subghz_playlist_free(subghz->subghz_playlist);
+#endif
     }
     // Read RAW
     view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdReadRAW);
@@ -434,6 +484,15 @@ int32_t subghz_app(void* p) {
         alloc_for_tx = false;
     }
 
+    /* The WiFi startup reserve and qFlipper screen worker occupy exactly the
+     * contiguous internal RAM needed by the radio edge queue. Pause frames and
+     * lend those idle allocations to SubGHz without closing the RPC session. */
+    const bool qflipper_handoff = qflipper_bridge_memory_handoff_begin();
+    if(!qflipper_handoff) {
+        wlan_hal_stop();
+        wlan_hal_release_memory_reserve();
+    }
+
     FURI_LOG_D(
         TAG,
         "heap before alloc: internal=%zu spiram=%zu",
@@ -447,6 +506,18 @@ int32_t subghz_app(void* p) {
         "heap after alloc:  internal=%zu spiram=%zu",
         heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
         heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
+    if(!subghz) {
+        FURI_LOG_E(TAG, "SubGHz failed to start (out of memory)");
+        if(qflipper_handoff && qflipper_bridge_is_rpc_active()) {
+            qflipper_bridge_memory_handoff_restore();
+        } else {
+            wlan_hal_reserve_memory();
+        }
+        return -1;
+    }
+
+    if(qflipper_handoff) qflipper_bridge_memory_handoff_resume();
 
     if(alloc_for_tx) {
         subghz->raw_send_only = true;
@@ -501,7 +572,15 @@ int32_t subghz_app(void* p) {
 
     furi_hal_power_suppress_charge_exit();
 
+    /* Stop the stream again while views and radio buffers are being released;
+     * then recreate the protected WiFi block before screen frames return. */
+    const bool exit_handoff = qflipper_bridge_memory_handoff_begin();
     subghz_free(subghz, alloc_for_tx);
+    if(exit_handoff && qflipper_bridge_is_rpc_active()) {
+        qflipper_bridge_memory_handoff_restore();
+    } else {
+        wlan_hal_reserve_memory();
+    }
 
     return 0;
 }

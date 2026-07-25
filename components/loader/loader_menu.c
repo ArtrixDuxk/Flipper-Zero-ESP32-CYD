@@ -5,7 +5,6 @@
 #include <assets_icons.h>
 #include <applications.h>
 #include <archive/helpers/archive_favorites.h>
-#include <esp_rom_sys.h>
 
 #include "loader.h"
 #include "loader_menu.h"
@@ -17,44 +16,6 @@ struct LoaderMenu {
     void (*closed_cb)(void*);
     void* context;
 };
-
-static void loader_menu_trace(const char* step) {
-    esp_rom_printf(
-        "\r\n[LM] %s free=%u\r\n",
-        step,
-        (unsigned)furi_thread_get_stack_space(furi_thread_get_current_id()));
-}
-
-static void loader_menu_trace_settings_registry(void) {
-    esp_rom_printf(
-        "\r\n[LM] settings_counts internal=%u external=%u\r\n",
-        (unsigned)FLIPPER_SETTINGS_APPS_COUNT,
-        (unsigned)FLIPPER_EXTSETTINGS_APPS_COUNT);
-
-    if(FLIPPER_SETTINGS_APPS_COUNT == 0) {
-        esp_rom_printf("\r\n[LM] settings_internal none\r\n");
-    } else {
-        for(size_t i = 0; i < FLIPPER_SETTINGS_APPS_COUNT; ++i) {
-            esp_rom_printf(
-                "\r\n[LM] settings_internal[%u] appid=%s name=%s\r\n",
-                (unsigned)i,
-                FLIPPER_SETTINGS_APPS[i].appid ? FLIPPER_SETTINGS_APPS[i].appid : "(null)",
-                FLIPPER_SETTINGS_APPS[i].name ? FLIPPER_SETTINGS_APPS[i].name : "(null)");
-        }
-    }
-
-    if(FLIPPER_EXTSETTINGS_APPS_COUNT == 0) {
-        esp_rom_printf("\r\n[LM] settings_external none\r\n");
-    } else {
-        for(size_t i = 0; i < FLIPPER_EXTSETTINGS_APPS_COUNT; ++i) {
-            esp_rom_printf(
-                "\r\n[LM] settings_external[%u] launch=%s name=%s\r\n",
-                (unsigned)i,
-                FLIPPER_EXTSETTINGS_APPS[i].path ? FLIPPER_EXTSETTINGS_APPS[i].path : "(null)",
-                FLIPPER_EXTSETTINGS_APPS[i].name ? FLIPPER_EXTSETTINGS_APPS[i].name : "(null)");
-        }
-    }
-}
 
 static int32_t loader_menu_thread(void* p);
 
@@ -108,7 +69,6 @@ static void loader_menu_external_apps_callback(void* context, uint32_t index) {
 static void loader_menu_applications_callback(void* context, uint32_t index) {
     UNUSED(index);
     UNUSED(context);
-    loader_menu_trace("apps_callback");
     loader_menu_start(LOADER_APPLICATIONS_NAME);
 }
 
@@ -141,7 +101,6 @@ static uint32_t loader_menu_exit(void* context) {
 static void loader_menu_build_menu(LoaderMenuApp* app, LoaderMenu* menu) {
     size_t i = 0;
 
-    loader_menu_trace_settings_registry();
 
     menu_add_item(
         app->primary_menu,
@@ -238,23 +197,18 @@ static void loader_menu_app_free(LoaderMenuApp* app) {
 static int32_t loader_menu_thread(void* p) {
     LoaderMenu* loader_menu = p;
     furi_assert(loader_menu);
-    loader_menu_trace("thread_start");
 
     LoaderMenuApp* app = loader_menu_app_alloc(loader_menu);
-    loader_menu_trace("app_alloc");
 
     view_dispatcher_attach_to_gui(
         app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
-    loader_menu_trace("attached");
     view_dispatcher_run(app->view_dispatcher);
-    loader_menu_trace("dispatcher_return");
 
     if(loader_menu->closed_cb) {
         loader_menu->closed_cb(loader_menu->context);
     }
 
     loader_menu_app_free(app);
-    loader_menu_trace("thread_end");
 
     return 0;
 }

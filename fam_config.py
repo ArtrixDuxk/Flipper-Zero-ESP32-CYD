@@ -82,13 +82,27 @@ _boards_without_ir = {"waveshare_c6_1.9", "waveshare_c6_1.47"}
 # Wolf3D shares Doom's requirements (PSRAM, ST7789 320xN, I2S speaker).
 # Doom läuft ebenfalls nur auf T-Embed (PSRAM + 16 MB Flash) — wird aber als
 # externer FAP gebaut (steht nicht in APPS), Block bleibt unten zur Klarheit.
-_boards_without_wolf3d = {"waveshare_c6_1.9", "waveshare_c6_1.47"}
+# CYD classic: 4 MB flash + no PSRAM — exclude heavy 3D / JS runtime and
+# anything without HAT hardware (saves static DRAM that classic ESP32 lacks).
+_boards_without_wolf3d = {"waveshare_c6_1.9", "waveshare_c6_1.47", "esp32_cyd_nm_rf_hat"}
+_boards_without_js = {"esp32_cyd_nm_rf_hat"}
+# Demos / fluff / unused radio paths — first DRAM/flash cut for CYD
+_boards_cyd_drop = {
+    "example_apps_data",
+    "example_apps_assets",
+    "example_number_input",
+    "lfrfid",  # no 125 kHz path on NM-RF-HAT
+    "passport",
+    "clock",
+    "cli_subghz",  # CLI still has generic shell; drop dedicated SubGHz CLI
+}
 
 if _board in _boards_without_nfc:
     APPS = [a for a in APPS if a != "nfc"]
 
 # waveshare_c6_1.9: external CC1101 module wired up (pins in board_waveshare_c6_1.9.h,
 # BOARD_HAS_SUBGHZ=1) → SubGHz built in. 1.47 has no module → stays excluded.
+# esp32_cyd_nm_rf_hat: NM-RF-HAT carries CC1101 + nRF24 + PN532 + IR.
 _boards_without_subghz = {"waveshare_c6_1.47"}
 
 # NRF24 plugs into the LORA slot (T-Embed CC1101). Boards without the slot
@@ -103,6 +117,12 @@ if _board in _boards_without_subghz:
 
 if _board in _boards_without_nrf24:
     APPS = [a for a in APPS if a != "nrf24"]
+
+if _board in _boards_without_js:
+    APPS = [a for a in APPS if not a.startswith("js_")]
+
+if _board == "esp32_cyd_nm_rf_hat":
+    APPS = [a for a in APPS if a not in _boards_cyd_drop]
 
 # NOTE: cli_vcp and dolphin look like easy RAM wins (~4KB stack each) but both
 # are hard-wired into the desktop service: desktop.c calls cli_vcp_enable/disable

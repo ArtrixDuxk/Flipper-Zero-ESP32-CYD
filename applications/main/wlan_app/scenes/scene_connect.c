@@ -20,11 +20,18 @@ static void connect_open_menu_for_selected(WlanApp* app) {
     wlan_connect_view_open_menu(app->view_connect);
 }
 
+static bool s_last_scan_start_ok = true;
+static bool s_last_scan_found = false;
+
 static void wlan_app_scene_connect_run_scan(WlanApp* app) {
     app->ap_count = 0;
+    s_last_scan_start_ok = true;
+    s_last_scan_found = false;
 
     if(!wlan_hal_is_started()) {
         if(!wlan_hal_start()) {
+            FURI_LOG_E("WlanConnect", "WiFi start failed — no scan (low RAM?)");
+            s_last_scan_start_ok = false;
             return;
         }
     }
@@ -33,10 +40,20 @@ static void wlan_app_scene_connect_run_scan(WlanApp* app) {
     uint16_t found = 0;
     wlan_hal_scan(&raw, &found, WLAN_APP_MAX_APS);
 
+    if(found == 0) {
+        FURI_LOG_W("WlanConnect", "Scan returned 0 APs");
+    } else {
+        s_last_scan_found = true;
+    }
+
     for(uint16_t i = 0; i < found; ++i) {
         WlanApRecord* r = &app->ap_records[app->ap_count++];
         memset(r, 0, sizeof(*r));
         strncpy(r->ssid, (const char*)raw[i].ssid, sizeof(r->ssid) - 1);
+        if(r->ssid[0] == '\0') {
+            snprintf(r->ssid, sizeof(r->ssid), "(%02X:%02X:%02X)",
+                     raw[i].bssid[3], raw[i].bssid[4], raw[i].bssid[5]);
+        }
         memcpy(r->bssid, raw[i].bssid, 6);
         r->rssi = raw[i].rssi;
         r->channel = raw[i].primary;
@@ -56,10 +73,18 @@ void wlan_app_scene_connect_on_enter(void* context) {
     wlan_app_scene_connect_run_scan(app);
 
     wlan_connect_view_clear(app->view_connect);
-    for(uint16_t i = 0; i < app->ap_count; ++i) {
-        WlanApRecord* r = &app->ap_records[i];
-        bool unlocked = r->is_open || r->has_password;
-        wlan_connect_view_add_ap(app->view_connect, r->ssid, unlocked, i);
+    if(!s_last_scan_start_ok) {
+        wlan_connect_view_add_ap(app->view_connect, "! WiFi start fail", false, 0);
+        wlan_connect_view_add_ap(app->view_connect, "  (low RAM / retry)", false, 0);
+    } else if(!s_last_scan_found) {
+        wlan_connect_view_add_ap(app->view_connect, "! No APs found", false, 0);
+        wlan_connect_view_add_ap(app->view_connect, "  Back + reopen", false, 0);
+    } else {
+        for(uint16_t i = 0; i < app->ap_count; ++i) {
+            WlanApRecord* r = &app->ap_records[i];
+            bool unlocked = r->is_open || r->has_password;
+            wlan_connect_view_add_ap(app->view_connect, r->ssid, unlocked, i);
+        }
     }
 
     uint8_t restore = scene_manager_get_scene_state(app->scene_manager, WlanAppSceneConnect);

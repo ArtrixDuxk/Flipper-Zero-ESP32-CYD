@@ -8,11 +8,13 @@
 
 #include "event_loop_link_i.h"
 
-// Internal FreeRTOS member names
-#define ucQueueType ucDummy9
-
 struct FuriMutex {
+    /* MUST stay first: FreeRTOS handle == pointer to this container. */
     StaticSemaphore_t container;
+    /* Stored explicitly — FreeRTOS only exposes ucQueueType (ucDummy9) when
+     * configUSE_TRACE_FACILITY=1. Classic ESP32 builds often disable trace to
+     * save DRAM, so poking the internal field is not portable. */
+    FuriMutexType type;
     FuriEventLoopLink event_loop_link;
 };
 
@@ -24,6 +26,7 @@ FuriMutex* furi_mutex_alloc(FuriMutexType type) {
 
     /* FreeRTOS requires StaticSemaphore_t in internal RAM, not PSRAM */
     FuriMutex* instance = heap_caps_calloc(1, sizeof(FuriMutex), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if(!instance) return NULL;
 
     SemaphoreHandle_t hMutex;
 
@@ -36,6 +39,7 @@ FuriMutex* furi_mutex_alloc(FuriMutexType type) {
     }
 
     furi_check(hMutex == (SemaphoreHandle_t)instance);
+    instance->type = type;
 
     return instance;
 }
@@ -56,14 +60,12 @@ FuriStatus furi_mutex_acquire(FuriMutex* instance, uint32_t timeout) {
     furi_check(instance);
 
     SemaphoreHandle_t hMutex = (SemaphoreHandle_t)(instance);
-    const uint8_t mutex_type = instance->container.ucQueueType;
-
     FuriStatus stat = FuriStatusOk;
 
     if(FURI_IS_IRQ_MODE()) {
         stat = FuriStatusErrorISR;
 
-    } else if(mutex_type == queueQUEUE_TYPE_RECURSIVE_MUTEX) {
+    } else if(instance->type == FuriMutexTypeRecursive) {
         if(xSemaphoreTakeRecursive(hMutex, timeout) != pdPASS) {
             if(timeout != 0U) {
                 stat = FuriStatusErrorTimeout;
@@ -72,7 +74,7 @@ FuriStatus furi_mutex_acquire(FuriMutex* instance, uint32_t timeout) {
             }
         }
 
-    } else if(mutex_type == queueQUEUE_TYPE_MUTEX) {
+    } else if(instance->type == FuriMutexTypeNormal) {
         if(xSemaphoreTake(hMutex, timeout) != pdPASS) {
             if(timeout != 0U) {
                 stat = FuriStatusErrorTimeout;
@@ -96,19 +98,17 @@ FuriStatus furi_mutex_release(FuriMutex* instance) {
     furi_check(instance);
 
     SemaphoreHandle_t hMutex = (SemaphoreHandle_t)(instance);
-    const uint8_t mutex_type = instance->container.ucQueueType;
-
     FuriStatus stat = FuriStatusOk;
 
     if(FURI_IS_IRQ_MODE()) {
         stat = FuriStatusErrorISR;
 
-    } else if(mutex_type == queueQUEUE_TYPE_RECURSIVE_MUTEX) {
+    } else if(instance->type == FuriMutexTypeRecursive) {
         if(xSemaphoreGiveRecursive(hMutex) != pdPASS) {
             stat = FuriStatusErrorResource;
         }
 
-    } else if(mutex_type == queueQUEUE_TYPE_MUTEX) {
+    } else if(instance->type == FuriMutexTypeNormal) {
         if(xSemaphoreGive(hMutex) != pdPASS) {
             stat = FuriStatusErrorResource;
         }

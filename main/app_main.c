@@ -3,10 +3,24 @@
 #include <flipper.h>
 #include <applications.h>
 
+#include "applications/services/desktop/helpers/qflipper_bridge.h"
+#include "applications/main/wlan_app/wlan_hal.h"
+
 #include <esp_log.h>
 #include <esp_rom_uart.h>
 
+#include <stdarg.h>
+
 static const char* TAG = "Main";
+static vprintf_like_t s_esp_log_vprintf = NULL;
+
+/* UART0 is also the CYD qFlipper transport. ESP_LOG writes textual diagnostics
+ * directly to it, which would corrupt protobuf frames; keep diagnostics on
+ * until the bridge enters binary RPC mode, then drop them. */
+static int qflipper_aware_esp_log_vprintf(const char* format, va_list args) {
+    if(qflipper_bridge_is_rpc_active()) return 0;
+    return s_esp_log_vprintf ? s_esp_log_vprintf(format, args) : 0;
+}
 
 static void log_internal_registry(
     const char* label,
@@ -108,16 +122,22 @@ static void log_registry_snapshot(void) {
 
 static void furi_log_esp_callback(const uint8_t* data, size_t size, void* context) {
     (void)context;
+    if(qflipper_bridge_is_rpc_active()) return;
     for(size_t i = 0; i < size; ++i) {
         esp_rom_output_putc((char)data[i]);
     }
 }
 
 void app_main(void) {
+    s_esp_log_vprintf = esp_log_set_vprintf(qflipper_aware_esp_log_vprintf);
     ESP_LOGI(TAG, "Starting Furi Core on ESP32...");
 
     // ESP-IDF: Scheduler is already running!
     furi_init();
+
+    /* Keep a contiguous block available for WiFi before qFlipper can start
+     * its screen-stream worker and fragment the internal heap. */
+    wlan_hal_reserve_memory();
 
     // Register ESP32 log handler
     FuriLogHandler log_handler = {

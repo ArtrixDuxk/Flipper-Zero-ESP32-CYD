@@ -32,6 +32,8 @@ struct FuriHalSpiBusHandle {
     const GpioPin* cs;
     void* device;
     bool initialized;
+    /** When true, spics_io_num=-1 and CS is toggled in software (shared-CS HAT). */
+    bool software_cs;
     uint32_t frequency_hz;
     uint8_t mode;
 };

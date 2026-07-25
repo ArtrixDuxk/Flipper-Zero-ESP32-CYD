@@ -17,6 +17,8 @@ typedef struct {
     FuriThread* thread;
     FlipperApplication* fap;
     bool insomniac;
+    size_t heap_before;
+    char name[32];
 } LoaderAppData;
 
 struct Loader {

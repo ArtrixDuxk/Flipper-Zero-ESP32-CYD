@@ -7,3 +7,8 @@ dependencies:
     version: "^3.0.0"
     rules:
       - if: "target in [esp32, esp32s2, esp32s3, esp32c3, esp32c6]"
+  # ILI9341 panel driver (CYD classic and other 2.8" TFTs)
+  espressif/esp_lcd_ili9341:
+    version: "^2.0.0"
+    rules:
+      - if: "target in [esp32, esp32s2, esp32s3, esp32c3, esp32c6]"

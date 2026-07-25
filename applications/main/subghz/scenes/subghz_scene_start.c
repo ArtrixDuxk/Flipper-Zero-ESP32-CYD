@@ -23,6 +23,7 @@ void subghz_scene_start_on_enter(void* context) {
         SubmenuIndexReadRAW,
         subghz_scene_start_submenu_callback,
         subghz);
+#if !SUBGHZ_LITE_RAM
     submenu_add_item(
         subghz->submenu,
         "Playlist",
@@ -41,6 +42,7 @@ void subghz_scene_start_on_enter(void* context) {
         SubmenuIndexBruteforce,
         subghz_scene_start_submenu_callback,
         subghz);
+#endif
     submenu_add_item(
         subghz->submenu, "Saved", SubmenuIndexSaved, subghz_scene_start_submenu_callback, subghz);
     submenu_add_item(
@@ -49,6 +51,7 @@ void subghz_scene_start_on_enter(void* context) {
         SubmenuIndexAddManually,
         subghz_scene_start_submenu_callback,
         subghz);
+#if !SUBGHZ_LITE_RAM
     submenu_add_item(
         subghz->submenu,
         "Add Manually [Advanced]",
@@ -61,6 +64,7 @@ void subghz_scene_start_on_enter(void* context) {
         SubmenuIndexFrequencyAnalyzer,
         subghz_scene_start_submenu_callback,
         subghz);
+#endif
     submenu_add_item(
         subghz->submenu,
         "Radio Settings",

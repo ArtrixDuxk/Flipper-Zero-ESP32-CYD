@@ -23,18 +23,29 @@ static_assert(offsetof(FuriStreamBuffer, container) == 0);
 // IMPORTANT: buffer MUST be the LAST struct member
 static_assert(offsetof(FuriStreamBuffer, buffer) == sizeof(FuriStreamBuffer));
 
-FuriStreamBuffer* furi_stream_buffer_alloc(size_t size, size_t trigger_level) {
+FuriStreamBuffer* furi_stream_buffer_try_alloc(size_t size, size_t trigger_level) {
     furi_check(size != 0);
 
     // Actual FreeRTOS usable buffer size seems to be one less
     const size_t buffer_size = size + 1;
 
     FuriStreamBuffer* stream_buffer = calloc(1, sizeof(FuriStreamBuffer) + buffer_size);
+    if(!stream_buffer) return NULL;
+
     StreamBufferHandle_t hStreamBuffer = xStreamBufferCreateStatic(
         buffer_size, trigger_level, stream_buffer->buffer, &stream_buffer->container);
 
-    furi_check(hStreamBuffer == (StreamBufferHandle_t)stream_buffer);
+    if(hStreamBuffer != (StreamBufferHandle_t)stream_buffer) {
+        free(stream_buffer);
+        return NULL;
+    }
 
+    return stream_buffer;
+}
+
+FuriStreamBuffer* furi_stream_buffer_alloc(size_t size, size_t trigger_level) {
+    FuriStreamBuffer* stream_buffer = furi_stream_buffer_try_alloc(size, trigger_level);
+    furi_check(stream_buffer);
     return stream_buffer;
 }
 

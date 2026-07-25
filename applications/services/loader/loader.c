@@ -422,7 +422,7 @@ static void loader_start_app_thread(Loader* loader, FlipperInternalApplicationFl
     furi_thread_start(loader->app.thread);
 }
 
-static void loader_start_internal_app(
+static bool loader_start_internal_app(
     Loader* loader,
     const FlipperInternalApplication* app,
     const char* args) {
@@ -432,13 +432,21 @@ static void loader_start_internal_app(
     furi_assert(loader->app.args == NULL);
     if(args && strlen(args) > 0) {
         loader->app.args = strdup(args);
+        if(!loader->app.args) return false;
     }
 
     loader->app.thread =
-        furi_thread_alloc_ex(app->name, app->stack_size, app->app, loader->app.args);
+        furi_thread_try_alloc_ex(app->name, app->stack_size, app->app, loader->app.args);
+    if(!loader->app.thread) {
+        free(loader->app.args);
+        loader->app.args = NULL;
+        FURI_LOG_E(TAG, "Not enough RAM to start %s", app->name);
+        return false;
+    }
     furi_thread_set_appid(loader->app.thread, app->appid);
 
     loader_start_app_thread(loader, app->flags);
+    return true;
 }
 
 static void loader_log_status_error(
@@ -697,8 +705,15 @@ static LoaderMessageLoaderStatusResult loader_do_start_by_name(
         {
             const FlipperInternalApplication* app = loader_find_application_by_name(name);
             if(app) {
-                loader_start_internal_app(loader, app, args);
-                status.value = loader_make_success_status(error_message);
+                if(loader_start_internal_app(loader, app, args)) {
+                    status.value = loader_make_success_status(error_message);
+                } else {
+                    status.value = loader_make_status_error(
+                        LoaderStatusErrorInternal,
+                        error_message,
+                        "Not enough RAM to start app");
+                    status.error = LoaderStatusErrorOutOfMemory;
+                }
                 break;
             }
         }

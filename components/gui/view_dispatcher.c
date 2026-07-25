@@ -303,9 +303,17 @@ void view_dispatcher_handle_input(ViewDispatcher* view_dispatcher, InputEvent* e
         // Dispatch input to current view
         bool is_consumed = view_input(view_dispatcher->current_view, event);
 
-        // Navigate if input is not consumed
-        if(!is_consumed && (event->key == InputKeyBack) &&
-           (event->type == InputTypeShort || event->type == InputTypeLong)) {
+        /* Navigate if input is not consumed.
+         * Physical Flipper: only InputKeyBack leaves views/apps.
+         * Touch: left-edge / left-swipe often arrives as InputKeyLeft (also
+         * drives GuiButtonTypeLeft "Back" labels). Treat unconsumed Left from
+         * TOUCH the same as Back so users can always exit. */
+        bool nav_back = (!is_consumed) &&
+                        (event->type == InputTypeShort || event->type == InputTypeLong) &&
+                        ((event->key == InputKeyBack) ||
+                         (event->key == InputKeyLeft &&
+                          event->sequence_source == INPUT_SEQUENCE_SOURCE_TOUCH));
+        if(nav_back) {
             // Navigate to previous
             uint32_t view_id = view_previous(view_dispatcher->current_view);
             if(view_id != VIEW_IGNORE) {

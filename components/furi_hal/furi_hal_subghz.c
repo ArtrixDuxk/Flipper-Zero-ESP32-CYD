@@ -11,6 +11,7 @@
 #include <furi.h>
 #include <furi_hal_spi.h>
 #include <furi_hal_resources.h>
+#include <furi_hal_rf_mux.h>
 #include <cc1101.h>
 #include "boards/board.h"
 
@@ -472,11 +473,57 @@ void furi_hal_subghz_init(void) {
     furi_hal_gpio_write(&sw0_init, true);
 #endif
 
+    furi_hal_rf_mux_claim(FuriHalRfMuxPathSubGhz);
+
+    /* Hold CSN high before first SPI traffic */
+    if(furi_hal_spi_bus_handle_subghz.cs) {
+        furi_hal_gpio_init_simple(furi_hal_spi_bus_handle_subghz.cs, GpioModeOutputPushPull);
+        furi_hal_gpio_write(furi_hal_spi_bus_handle_subghz.cs, true);
+    }
+#if defined(BOARD_PIN_CC1101_GDO0) && (BOARD_PIN_CC1101_GDO0 != UINT16_MAX)
+    {
+        static const GpioPin gdo0 = {.port = NULL, .pin = BOARD_PIN_CC1101_GDO0};
+        furi_hal_gpio_init_simple(&gdo0, GpioModeInput);
+    }
+#endif
+
     FuriHalSubGhzProbe probe = {0};
     furi_hal_spi_bus_handle_init(&furi_hal_spi_bus_handle_subghz);
     furi_hal_subghz.connected = furi_hal_subghz_probe_read(&probe, true);
     furi_hal_subghz_log_probe(&probe, furi_hal_subghz.connected);
+#if defined(BOARD_RF_MUX_SHARED_CTRL) && BOARD_RF_MUX_SHARED_CTRL
+    if(!furi_hal_subghz.connected) {
+        ESP_LOGW(
+            TAG,
+            "CC1101 not seen at boot — set NM-RF-HAT DIP to position 1 (CC1101), "
+            "then open Sub-GHz (will re-probe)");
+    }
+#endif
     furi_hal_subghz.state = FuriHalSubGhzStateIdle;
+}
+
+bool furi_hal_subghz_is_connected(void) {
+    return furi_hal_subghz.connected;
+}
+
+/** Re-run chip ID probe (e.g. after user flips HAT DIP to CC1101). */
+bool furi_hal_subghz_reprobe(void) {
+    furi_hal_rf_mux_claim(FuriHalRfMuxPathSubGhz);
+    if(furi_hal_spi_bus_handle_subghz.cs) {
+        furi_hal_gpio_init_simple(furi_hal_spi_bus_handle_subghz.cs, GpioModeOutputPushPull);
+        furi_hal_gpio_write(furi_hal_spi_bus_handle_subghz.cs, true);
+    }
+#if defined(BOARD_PIN_CC1101_GDO0) && (BOARD_PIN_CC1101_GDO0 != UINT16_MAX)
+    {
+        static const GpioPin gdo0 = {.port = NULL, .pin = BOARD_PIN_CC1101_GDO0};
+        furi_hal_gpio_init_simple(&gdo0, GpioModeInput);
+    }
+#endif
+    furi_hal_spi_bus_handle_init(&furi_hal_spi_bus_handle_subghz);
+    FuriHalSubGhzProbe probe = {0};
+    furi_hal_subghz.connected = furi_hal_subghz_probe_read(&probe, true);
+    furi_hal_subghz_log_probe(&probe, furi_hal_subghz.connected);
+    return furi_hal_subghz.connected;
 }
 
 void furi_hal_subghz_sleep(void) {

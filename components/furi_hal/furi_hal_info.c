@@ -6,6 +6,22 @@
 
 #include "furi_hal_version.h"
 #include "furi_hal_bt.h"
+#include "furi_hal_display.h"
+
+static void furi_hal_info_display_color_to_hex(FuriString* value, uint16_t swapped_rgb565) {
+    /* The LCD HAL stores RGB565 in SPI byte order. Convert it back to a
+     * regular #RRGGBB value so desktop clients do not need board-specific
+     * byte-order knowledge. */
+    const uint16_t rgb565 = (uint16_t)((swapped_rgb565 << 8) | (swapped_rgb565 >> 8));
+    const uint8_t r5 = (rgb565 >> 11) & 0x1F;
+    const uint8_t g6 = (rgb565 >> 5) & 0x3F;
+    const uint8_t b5 = rgb565 & 0x1F;
+    const uint8_t r8 = (uint8_t)((r5 << 3) | (r5 >> 2));
+    const uint8_t g8 = (uint8_t)((g6 << 2) | (g6 >> 4));
+    const uint8_t b8 = (uint8_t)((b5 << 3) | (b5 >> 2));
+
+    furi_string_printf(value, "#%02X%02X%02X", r8, g8, b8);
+}
 
 void furi_hal_info_get_api_version(uint16_t* major, uint16_t* minor) {
     if(major) *major = 0;
@@ -59,6 +75,24 @@ void furi_hal_info_get(PropertyValueCallback out, char sep, void* context) {
         (unsigned int)furi_hal_version_get_hw_display());
     property_value_out(&property_context, "%u", 2, "hardware", "color",
         (unsigned int)furi_hal_version_get_hw_color());
+    /* ESP32 color-display extension. In the monochrome framebuffer a clear
+     * bit is the UI background and a set bit is the UI foreground. */
+    furi_hal_info_display_color_to_hex(value, furi_hal_display_get_fg_color());
+    property_value_out(
+        &property_context,
+        NULL,
+        2,
+        "hardware",
+        "display.background",
+        furi_string_get_cstr(value));
+    furi_hal_info_display_color_to_hex(value, furi_hal_display_get_bg_color());
+    property_value_out(
+        &property_context,
+        NULL,
+        2,
+        "hardware",
+        "display.foreground",
+        furi_string_get_cstr(value));
     property_value_out(&property_context, NULL, 2, "hardware", "region.builtin",
         furi_hal_version_get_hw_region_name());
     property_value_out(&property_context, NULL, 2, "hardware", "region.provisioned",

@@ -70,18 +70,27 @@ void compress_icon_decode(CompressIcon* instance, const uint8_t* icon_data, uint
     furi_check(icon_data);
     furi_check(output);
 
+    *output = NULL;
+    if(!instance->buffer || !instance->decoder) {
+        return;
+    }
+
     CompressHeader* header = (CompressHeader*)icon_data;
     if(header->is_compressed) {
         size_t decoded_size = 0;
-        /* If decompression fails - check that decode_buf_size is large enough */
-        furi_check(compress_decode_internal(
-            instance->decoder,
-            icon_data,
-            /* Decoder will check/process headers again - need to pass them */
-            sizeof(CompressHeader) + header->compressed_buff_size,
-            instance->buffer,
-            instance->buffer_size,
-            &decoded_size));
+        /* If decompression fails (OOM / bad data) — leave *output NULL; caller
+         * must skip the draw instead of crashing the whole GUI. */
+        if(!compress_decode_internal(
+               instance->decoder,
+               icon_data,
+               /* Decoder will check/process headers again - need to pass them */
+               sizeof(CompressHeader) + header->compressed_buff_size,
+               instance->buffer,
+               instance->buffer_size,
+               &decoded_size)) {
+            FURI_LOG_W(TAG, "icon decompress failed");
+            return;
+        }
         *output = instance->buffer;
     } else {
         *output = (uint8_t*)&icon_data[1];
@@ -236,6 +245,13 @@ static bool compress_decode_stream_internal(
 
     uint8_t* compressed_chunk = malloc(work_buffer_size);
     uint8_t* decompressed_chunk = malloc(work_buffer_size);
+    if(!compressed_chunk || !decompressed_chunk) {
+        /* Low-RAM boards (classic ESP32) can fail here; never crash the GUI. */
+        FURI_LOG_E(TAG, "OOM decoding icon (%u bytes each)", (unsigned)work_buffer_size);
+        free(compressed_chunk);
+        free(decompressed_chunk);
+        return false;
+    }
 
     /* Sink data to decoding buffer */
     do {
@@ -290,8 +306,14 @@ typedef struct {
 static int32_t memory_stream_io_callback(void* context, uint8_t* ptr, size_t size) {
     MemoryStreamState* state = (MemoryStreamState*)context;
 
+    if(!state || !ptr || !state->data_ptr) {
+        return 0;
+    }
     if(size > state->data_size) {
         size = state->data_size;
+    }
+    if(size == 0) {
+        return 0;
     }
     if(state->is_source) {
         memcpy(ptr, state->data_ptr, size);

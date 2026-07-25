@@ -114,7 +114,7 @@ static void rpc_system_storage_info_process(const PB_Main* request, void* contex
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     response->command_id = request->command_id;
 
     FS_Error error = storage_common_fs_info(
@@ -147,7 +147,7 @@ static void rpc_system_storage_timestamp_process(const PB_Main* request, void* c
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     response->command_id = request->command_id;
 
     const char* path = request->content.storage_timestamp_request.path;
@@ -179,23 +179,26 @@ static void rpc_system_storage_stat_process(const PB_Main* request, void* contex
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     response->command_id = request->command_id;
 
     const char* path = request->content.storage_stat_request.path;
     FileInfo fileinfo;
     FS_Error error = storage_common_stat(rpc_storage->api, path, &fileinfo);
 
-    response->command_status = rpc_system_storage_get_error(error);
-    response->which_content = PB_Main_empty_tag;
+    response->command_status = PB_CommandStatus_OK;
+    response->which_content = PB_Main_storage_stat_response_tag;
+    response->content.storage_stat_response.has_file = false;
 
     if(error == FSE_OK) {
-        response->which_content = PB_Main_storage_stat_response_tag;
         response->content.storage_stat_response.has_file = true;
         response->content.storage_stat_response.file.type = file_info_is_dir(&fileinfo) ?
                                                                 PB_Storage_File_FileType_DIR :
                                                                 PB_Storage_File_FileType_FILE;
         response->content.storage_stat_response.file.size = fileinfo.size;
+    } else if(error != FSE_NOT_EXIST) {
+        response->command_status = rpc_system_storage_get_error(error);
+        response->which_content = PB_Main_empty_tag;
     }
 
     rpc_send_and_release(session, response);
@@ -238,6 +241,7 @@ static bool rpc_system_storage_list_filter(
     bool result = false;
 
     do {
+        if(!strcmp(name, ".") || !strcmp(name, "..")) break;
         if(!path_contains_only_ascii(name)) break;
         if(request->filter_max_size) {
             if(fileinfo->size > request->filter_max_size) break;
@@ -295,7 +299,13 @@ static void rpc_system_storage_list_process(const PB_Main* request, void* contex
     while(!finish) { //-V1044
         FileInfo fileinfo;
         char* name = malloc(MAX_NAME_LENGTH + 1);
-        if(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH)) {
+        if(!name) {
+            response.command_status = PB_CommandStatus_ERROR_STORAGE_INTERNAL;
+            response.which_content = PB_Main_empty_tag;
+            finish = true;
+            break;
+        }
+        if(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH + 1)) {
             if(rpc_system_storage_list_filter(list_request, &fileinfo, name)) {
                 if(i == COUNT_OF(list->file)) {
                     list->file_count = i;
@@ -354,10 +364,11 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
     /* use same message memory to send response */
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     const char* path = request->content.storage_read_request.path;
     File* file = storage_file_alloc(rpc_storage->api);
     bool fs_operation_success = storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING);
+    bool allocation_failed = false;
 
     if(fs_operation_success) {
         size_t size_left = storage_file_size(file);
@@ -371,6 +382,11 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
                 response->content.storage_read_response.has_file = true;
                 response->content.storage_read_response.file.data =
                     malloc(PB_BYTES_ARRAY_T_ALLOCSIZE(read_size));
+                if(!response->content.storage_read_response.file.data) {
+                    allocation_failed = true;
+                    fs_operation_success = false;
+                    break;
+                }
                 uint8_t* buffer = &response->content.storage_read_response.file.data->bytes[0];
                 uint16_t* read_size_msg = &response->content.storage_read_response.file.data->size;
 
@@ -387,6 +403,11 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
 #pragma GCC diagnostic ignored "-Walloc-size"
                 response->content.storage_read_response.file.data =
                     malloc(PB_BYTES_ARRAY_T_ALLOCSIZE(0));
+                if(!response->content.storage_read_response.file.data) {
+                    allocation_failed = true;
+                    fs_operation_success = false;
+                    break;
+                }
                 response->content.storage_read_response.file.data->size = 0;
 #pragma GCC diagnostic pop
                 response->content.storage_read_response.has_file = true;
@@ -402,7 +423,10 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
 
     if(!fs_operation_success) {
         rpc_send_and_release_empty(
-            session, request->command_id, rpc_system_storage_get_file_error(file));
+            session,
+            request->command_id,
+            allocation_failed ? PB_CommandStatus_ERROR_STORAGE_INTERNAL :
+                                rpc_system_storage_get_file_error(file));
     }
 
     free(response);
@@ -471,15 +495,51 @@ static void rpc_system_storage_write_process(const PB_Main* request, void* conte
         }
     }
 
-    ESP_LOGI(TAG, "write: has_next=%d send_response=%d fs_ok=%d status=%d",
-        request->has_next, send_response, fs_operation_success, command_status);
-
     if(send_response) {
-        ESP_LOGI(TAG, "write: sending final response cmd_id=%lu status=%d",
-            (unsigned long)rpc_storage->current_command_id, command_status);
-        rpc_send_and_release_empty(session, rpc_storage->current_command_id, command_status);
-        rpc_system_storage_reset_state(rpc_storage, session, false);
-        ESP_LOGI(TAG, "write: response sent OK");
+        const uint32_t command_id = rpc_storage->current_command_id;
+        const char* request_path = request->content.storage_write_request.path;
+        char* completed_path = strdup(request_path);
+        if(!completed_path) {
+            fs_operation_success = false;
+            command_status = PB_CommandStatus_ERROR_STORAGE_INTERNAL;
+        }
+
+        if(fs_operation_success && !storage_file_sync(file)) {
+            command_status = rpc_system_storage_get_file_error(file);
+            if(command_status == PB_CommandStatus_OK) {
+                command_status = PB_CommandStatus_ERROR_STORAGE_INTERNAL;
+            }
+            fs_operation_success = false;
+        }
+
+        /* Commit and close the FatFS handle before acknowledging completion.
+         * The CYD UART host can enqueue the next storage request immediately
+         * after this response. */
+        if(!storage_file_close(file) && fs_operation_success) {
+            command_status = rpc_system_storage_get_file_error(file);
+            if(command_status == PB_CommandStatus_OK) {
+                command_status = PB_CommandStatus_ERROR_STORAGE_INTERNAL;
+            }
+            fs_operation_success = false;
+        }
+        storage_file_free(file);
+        rpc_storage->file = NULL;
+        rpc_storage->state = RpcStorageStateIdle;
+
+        /* Do not report a successful upload until the completed directory
+         * entry is visible through the same storage API used by qFlipper. */
+        if(fs_operation_success && completed_path) {
+            FileInfo fileinfo;
+            FS_Error stat_error = storage_common_stat(rpc_storage->api, completed_path, &fileinfo);
+            if(stat_error != FSE_OK || file_info_is_dir(&fileinfo)) {
+                command_status = stat_error == FSE_OK ?
+                                     PB_CommandStatus_ERROR_STORAGE_INTERNAL :
+                                     rpc_system_storage_get_error(stat_error);
+            }
+        }
+
+        free(completed_path);
+        rpc_send_and_release_empty(session, command_id, command_status);
     }
 }
 
@@ -493,8 +553,14 @@ static bool rpc_system_storage_is_dir_is_empty(Storage* storage, const char* pat
     if((error == FSE_OK) && file_info_is_dir(&fileinfo)) {
         File* dir = storage_file_alloc(storage);
         if(storage_dir_open(dir, path)) {
-            char* name = malloc(MAX_NAME_LENGTH);
-            while(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH)) {
+            char* name = malloc(MAX_NAME_LENGTH + 1);
+            if(!name) {
+                storage_dir_close(dir);
+                storage_file_free(dir);
+                return false;
+            }
+            while(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH + 1)) {
+                if(!strcmp(name, ".") || !strcmp(name, "..")) continue;
                 if(path_contains_only_ascii(name)) {
                     is_dir_is_empty = false;
                     break;
@@ -530,11 +596,15 @@ static void rpc_system_storage_delete_process(const PB_Main* request, void* cont
         FS_Error error_remove = storage_common_remove(rpc_storage->api, path);
         // FSE_DENIED is for empty directory, but not only for this
         // that's why we have to check it
-        if((error_remove == FSE_DENIED) &&
-           !rpc_system_storage_is_dir_is_empty(rpc_storage->api, path)) {
+        bool dir_is_empty = true;
+        if(error_remove == FSE_DENIED) {
+            dir_is_empty = rpc_system_storage_is_dir_is_empty(rpc_storage->api, path);
+        }
+        if((error_remove == FSE_DENIED) && !dir_is_empty) {
             if(request->content.storage_delete_request.recursive) {
                 bool deleted = storage_simply_remove_recursive(rpc_storage->api, path);
-                status = deleted ? PB_CommandStatus_OK : PB_CommandStatus_ERROR;
+                status = deleted ? PB_CommandStatus_OK :
+                                   PB_CommandStatus_ERROR_STORAGE_INTERNAL;
             } else {
                 status = PB_CommandStatus_ERROR_STORAGE_DIR_NOT_EMPTY;
             }
@@ -737,7 +807,7 @@ static void rpc_system_storage_tar_extract_process(const PB_Main* request, void*
 void* rpc_system_storage_alloc(RpcSession* session) {
     furi_assert(session);
 
-    RpcStorageSystem* rpc_storage = malloc(sizeof(RpcStorageSystem));
+    RpcStorageSystem* rpc_storage = calloc(1, sizeof(RpcStorageSystem));
     rpc_storage->api = furi_record_open(RECORD_STORAGE);
     rpc_storage->session = session;
     rpc_storage->state = RpcStorageStateIdle;

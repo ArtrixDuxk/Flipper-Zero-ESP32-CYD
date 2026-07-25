@@ -24,6 +24,7 @@ extern "C" {
 #include <furi_hal_display.h>
 #include <furi_hal_touch.h>
 #include <furi_hal_spi.h>
+#include <furi_hal_rf_mux.h>
 #include <furi_hal_subghz.h>
 #include <furi_hal_nfc.h>
 #include <furi_hal_infrared.h>

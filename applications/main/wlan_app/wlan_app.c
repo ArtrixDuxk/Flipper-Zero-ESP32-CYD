@@ -3,8 +3,33 @@
 #include "wlan_cred_sniff.h"
 #include "wlan_hal.h"
 #include "wlan_netcut.h"
+#include "applications/services/desktop/helpers/qflipper_bridge.h"
 
-#include <esp_heap_caps.h> /* TEMP: heap diagnostics for the C6 OOM crash */
+#include <esp_log.h>
+#include <esp_heap_caps.h>
+
+static const char* TAG = "WlanApp";
+static WlanApp* s_wlan_app_reserve = NULL;
+static bool s_wlan_app_active = false;
+
+#define WLAN_APP_MIN_START_HEAP (24u * 1024u)
+
+bool wlan_app_reserve_memory(void) {
+    if(s_wlan_app_reserve || s_wlan_app_active) return true;
+
+    s_wlan_app_reserve = calloc(1, sizeof(WlanApp));
+    if(!s_wlan_app_reserve) {
+        ESP_LOGW(TAG, "Unable to reserve WiFi app state");
+        return false;
+    }
+    return true;
+}
+
+void wlan_app_release_reserved_memory(void) {
+    if(s_wlan_app_active) return;
+    free(s_wlan_app_reserve);
+    s_wlan_app_reserve = NULL;
+}
 
 static bool wlan_app_custom_event_callback(void* context, uint32_t event) {
     furi_assert(context);
@@ -24,8 +49,54 @@ static void wlan_app_tick_event_callback(void* context) {
     scene_manager_handle_tick_event(app->scene_manager);
 }
 
+bool wlan_app_ensure_cred_sniff(WlanApp* app) {
+    furi_assert(app);
+    if(app->cred_sniff) return true;
+
+    app->cred_sniff = wlan_cred_sniff_alloc();
+    if(!app->cred_sniff) {
+        ESP_LOGE(TAG, "Cannot allocate credential capture buffers");
+        return false;
+    }
+
+    wlan_netcut_set_cred_sniff(app->netcut, app->cred_sniff);
+    wlan_html_inject_set_cred_sniff(app->cred_sniff);
+    return true;
+}
+
 static WlanApp* wlan_app_alloc(void) {
-    WlanApp* app = malloc(sizeof(WlanApp));
+    WlanApp* app = s_wlan_app_reserve;
+    if(app) {
+        s_wlan_app_reserve = NULL;
+    } else {
+        app = calloc(1, sizeof(WlanApp));
+    }
+    if(!app) {
+        ESP_LOGE(TAG, "Not enough RAM for WiFi app state");
+        return NULL;
+    }
+    s_wlan_app_active = true;
+
+    const size_t free_internal =
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if(free_internal < WLAN_APP_MIN_START_HEAP) {
+        ESP_LOGE(TAG, "Not enough RAM to open WiFi (%u free)", (unsigned)free_internal);
+        s_wlan_app_active = false;
+        memset(app, 0, sizeof(WlanApp));
+        if(qflipper_bridge_is_rpc_active() && !s_wlan_app_reserve) {
+            s_wlan_app_reserve = app;
+        } else {
+            free(app);
+        }
+        return NULL;
+    }
+
+    /* The classic ESP32 WiFi driver needs a sizeable contiguous internal-RAM
+     * block. Reserve it before the many GUI models fragment the heap. This is
+     * especially important while qFlipper screen streaming is active. */
+    if(!wlan_hal_start()) {
+        ESP_LOGW(TAG, "Early WiFi reservation failed; connect scene will retry");
+    }
 
     app->gui = furi_record_open(RECORD_GUI);
     app->scene_manager = scene_manager_alloc(&wlan_app_scene_handlers, app);
@@ -110,6 +181,16 @@ static WlanApp* wlan_app_alloc(void) {
     app->ap_selected_index = 0;
 
     app->devices = malloc(sizeof(WlanDeviceRecord) * WLAN_APP_MAX_DEVICES);
+    if(!app->ap_records || !app->devices) {
+        ESP_LOGE(TAG, "Not enough RAM for WiFi scan records");
+        free(app->ap_records);
+        free(app->devices);
+        app->ap_records = NULL;
+        app->devices = NULL;
+        /* The preflight above normally prevents this. Returning lets the app
+         * thread stop cleanly instead of dereferencing either buffer. */
+        return app;
+    }
     app->device_count = 0;
     app->device_selected_index = 0;
     app->lan_menu_device_idx = -1;
@@ -141,15 +222,9 @@ static WlanApp* wlan_app_alloc(void) {
 
     app->text_buf = furi_string_alloc();
     app->netcut = wlan_netcut_alloc();
-    /* TEMP: log heap right before the 15KB cred_sniff alloc that OOM-crashed. */
-    printf(
-        "[WLAN] heap before cred_sniff: free=%u largest_block=%u\n",
-        (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
-        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
-    app->cred_sniff = wlan_cred_sniff_alloc();
-    printf("[WLAN] cred_sniff=%p\n", (void*)app->cred_sniff);
-    wlan_netcut_set_cred_sniff(app->netcut, app->cred_sniff);
-    wlan_html_inject_set_cred_sniff(app->cred_sniff);
+    app->cred_sniff = NULL;
+    wlan_netcut_set_cred_sniff(app->netcut, NULL);
+    wlan_html_inject_set_cred_sniff(NULL);
 
     app->mitm_inject_enabled = true;
     app->mitm_store_cred = true;
@@ -171,6 +246,7 @@ static void wlan_app_free(WlanApp* app) {
         wlan_netcut_free(app->netcut);
         app->netcut = NULL;
     }
+    wlan_html_inject_set_cred_sniff(NULL);
     if(app->cred_sniff) {
         wlan_cred_sniff_free(app->cred_sniff);
         app->cred_sniff = NULL;
@@ -180,6 +256,7 @@ static void wlan_app_free(WlanApp* app) {
         app->sd_update = NULL;
     }
     wlan_hal_stop();
+    if(qflipper_bridge_is_rpc_active()) wlan_hal_reserve_memory();
 
     view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewSubmenu);
     view_dispatcher_remove_view(app->view_dispatcher, WlanAppViewWidget);
@@ -222,16 +299,26 @@ static void wlan_app_free(WlanApp* app) {
 
     free(app->ap_records);
     free(app->devices);
-    furi_string_free(app->text_buf);
+    if(app->text_buf) furi_string_free(app->text_buf);
 
     furi_record_close(RECORD_GUI);
     app->gui = NULL;
-    free(app);
+    s_wlan_app_active = false;
+    if(qflipper_bridge_is_rpc_active() && !s_wlan_app_reserve) {
+        memset(app, 0, sizeof(WlanApp));
+        s_wlan_app_reserve = app;
+    } else {
+        free(app);
+    }
 }
 
 int32_t wlan_app(void* args) {
     UNUSED(args);
     WlanApp* app = wlan_app_alloc();
+    if(!app || !app->ap_records || !app->devices || !app->sd_update || !app->netcut) {
+        if(app) wlan_app_free(app);
+        return -1;
+    }
     scene_manager_next_scene(app->scene_manager, WlanAppSceneMain);
     view_dispatcher_run(app->view_dispatcher);
     wlan_app_free(app);

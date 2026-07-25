@@ -3,8 +3,15 @@
 
 #include <furi.h>
 
+#include <sdkconfig.h>
+#if defined(CONFIG_IDF_TARGET_ESP32)
+/* Classic ESP32 has ~200KB free heap after boot; keep history tiny. */
+#define SUBGHZ_HISTORY_MAX       12
+#define SUBGHZ_HISTORY_FREE_HEAP 6144
+#else
 #define SUBGHZ_HISTORY_MAX       55
 #define SUBGHZ_HISTORY_FREE_HEAP 20480
+#endif
 #define TAG                      "SubGhzHistory"
 
 typedef struct {

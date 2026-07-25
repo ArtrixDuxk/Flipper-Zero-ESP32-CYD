@@ -3,6 +3,7 @@
 #include <esp_bt.h>
 #include <esp_bt_main.h>
 #include <esp_gap_ble_api.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <furi.h>
 #include <furi_hal_random.h>
@@ -24,6 +25,7 @@ static esp_ble_adv_params_t s_adv_params = {
     .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 
+#if !defined(CONFIG_IDF_TARGET_ESP32)
 static void spam_gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) {
     switch(event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
@@ -50,9 +52,20 @@ static void spam_gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_
         break;
     }
 }
+#endif /* !CONFIG_IDF_TARGET_ESP32 */
 
 bool ble_spam_hal_start(void) {
     ESP_LOGI(TAG, "Starting BLE spam HAL...");
+
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    /* Never touch the BT controller on classic ESP32+CYD (no PSRAM):
+     * even when free-heap looks OK, Bluedroid init still panics/reboots. */
+    ESP_LOGE(
+        TAG,
+        "BLE Spam is not supported on classic ESP32 (CYD 4MB/no-PSRAM). "
+        "Use ESP32-S3 / board with PSRAM.");
+    return false;
+#else
 
     // Stop btshim BLE stack
     Bt* bt = furi_record_open(RECORD_BT);
@@ -60,11 +73,20 @@ bool ble_spam_hal_start(void) {
     furi_record_close(RECORD_BT);
     furi_delay_ms(100);
 
+    /* Free classic BR/EDR controller memory so BLE/WiFi can use it. */
+    {
+        esp_err_t rel = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+        if(rel != ESP_OK && rel != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "classic mem_release: %s", esp_err_to_name(rel));
+        }
+    }
+
     // Init BLE controller
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_bt_controller_init(&bt_cfg);
     if(err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "controller init: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "controller init: %s (heap=%u)", esp_err_to_name(err),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
         return false;
     }
 
@@ -95,14 +117,22 @@ bool ble_spam_hal_start(void) {
         return false;
     }
 
-    // Set TX power to maximum for all BLE power types
-#ifdef ESP_PWR_LVL_P21
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P21);
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P21);
+    // Set TX power to maximum available on this SoC.
+    // S3/C6 expose +20/+21 dBm; classic ESP32 tops out around +9 dBm.
+#if defined(ESP_PWR_LVL_P21)
+#define BLE_SPAM_TX_PWR ESP_PWR_LVL_P21
+#elif defined(ESP_PWR_LVL_P20)
+#define BLE_SPAM_TX_PWR ESP_PWR_LVL_P20
+#elif defined(ESP_PWR_LVL_P9)
+#define BLE_SPAM_TX_PWR ESP_PWR_LVL_P9
+#elif defined(ESP_PWR_LVL_P7)
+#define BLE_SPAM_TX_PWR ESP_PWR_LVL_P7
 #else
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P20);
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P20);
+#define BLE_SPAM_TX_PWR ESP_PWR_LVL_N0
 #endif
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, BLE_SPAM_TX_PWR);
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, BLE_SPAM_TX_PWR);
+#undef BLE_SPAM_TX_PWR
 
     s_adv_configured = false;
     s_advertising = false;
@@ -115,9 +145,18 @@ bool ble_spam_hal_start(void) {
 
     ESP_LOGI(TAG, "BLE spam HAL ready");
     return true;
+#endif /* !CONFIG_IDF_TARGET_ESP32 */
 }
 
 void ble_spam_hal_stop(void) {
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    /* Start is intentionally unsupported and BTDM memory was released at boot.
+     * Calling any Bluedroid teardown API after that release asserts in BTC. */
+    s_adv_configured = false;
+    s_advertising = false;
+    s_rand_addr_pending = false;
+    return;
+#else
     ESP_LOGI(TAG, "Stopping BLE spam HAL...");
 
     // Stop advertising
@@ -150,6 +189,7 @@ void ble_spam_hal_stop(void) {
     furi_record_close(RECORD_BT);
 
     ESP_LOGI(TAG, "BLE spam HAL stopped, btshim restored");
+#endif
 }
 
 bool ble_spam_hal_set_adv_data(const uint8_t* data, uint8_t len) {

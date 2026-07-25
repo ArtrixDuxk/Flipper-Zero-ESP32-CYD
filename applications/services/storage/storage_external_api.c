@@ -985,14 +985,17 @@ bool storage_simply_remove_recursive(Storage* storage, const char* path) {
     File* dir = storage_file_alloc(storage);
     cur_dir = furi_string_alloc_set(path);
     bool go_deeper = false;
+    bool failed = !name;
 
-    while(1) {
+    while(!failed) {
         if(!storage_dir_open(dir, furi_string_get_cstr(cur_dir))) {
-            storage_dir_close(dir);
+            if(storage_file_is_dir(dir)) storage_dir_close(dir);
             break;
         }
 
-        while(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH)) {
+        while(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH + 1)) {
+            if(!strcmp(name, ".") || !strcmp(name, "..")) continue;
+
             if(file_info_is_dir(&fileinfo)) {
                 furi_string_cat_printf(cur_dir, "/%s", name); //-V576
                 go_deeper = true;
@@ -1001,10 +1004,15 @@ bool storage_simply_remove_recursive(Storage* storage, const char* path) {
 
             fullname = furi_string_alloc_printf("%s/%s", furi_string_get_cstr(cur_dir), name);
             FS_Error error = storage_common_remove(storage, furi_string_get_cstr(fullname));
-            furi_check(error == FSE_OK);
             furi_string_free(fullname);
+            if(error != FSE_OK && error != FSE_NOT_EXIST) {
+                failed = true;
+                break;
+            }
         }
         storage_dir_close(dir);
+
+        if(failed) break;
 
         if(go_deeper) {
             go_deeper = false;
@@ -1012,7 +1020,7 @@ bool storage_simply_remove_recursive(Storage* storage, const char* path) {
         }
 
         FS_Error error = storage_common_remove(storage, furi_string_get_cstr(cur_dir));
-        furi_check(error == FSE_OK);
+        if(error != FSE_OK && error != FSE_NOT_EXIST) break;
 
         if(furi_string_cmp(cur_dir, path)) {
             size_t last_char = furi_string_search_rchar(cur_dir, '/');
@@ -1027,7 +1035,7 @@ bool storage_simply_remove_recursive(Storage* storage, const char* path) {
     storage_file_free(dir);
     furi_string_free(cur_dir);
     free(name);
-    return result;
+    return result && !failed;
 } //-V773
 
 bool storage_simply_remove(Storage* storage, const char* path) {

@@ -207,6 +207,11 @@ void wlan_app_scene_live_creds_on_enter(void* context) {
     WlanApp* app = context;
     s_lc_active = false;
 
+    if(!wlan_app_ensure_cred_sniff(app)) {
+        lc_show_error(app, "Not enough RAM");
+        return;
+    }
+
     if(!wlan_netcut_preflight(app->netcut)) {
         lc_disarm_monitor(app);
         lc_show_error(app, "Connect as STA + scan LAN");

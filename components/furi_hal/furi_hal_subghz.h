@@ -31,6 +31,10 @@ typedef enum {
 void furi_hal_subghz_set_async_mirror_pin(const GpioPin* pin);
 const GpioPin* furi_hal_subghz_get_data_gpio(void);
 void furi_hal_subghz_init(void);
+/** True if last probe saw a CC1101 on the SPI bus. */
+bool furi_hal_subghz_is_connected(void);
+/** Re-run CC1101 SPI probe (e.g. after HAT DIP switched to CC1101). */
+bool furi_hal_subghz_reprobe(void);
 void furi_hal_subghz_sleep(void);
 void furi_hal_subghz_dump_state(void);
 void furi_hal_subghz_load_custom_preset(const uint8_t* preset_data);

@@ -5,6 +5,7 @@
 #include <esp_gap_ble_api.h>
 #include <esp_gattc_api.h>
 #include <esp_gatt_common_api.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <furi.h>
 #include <btshim.h>
@@ -233,10 +234,19 @@ bool ble_walk_hal_start(void) {
 
     ESP_LOGI(TAG, "Starting BLE Walk HAL...");
 
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    ESP_LOGE(
+        TAG,
+        "BLE Walk is not supported on classic ESP32 (CYD 4MB/no-PSRAM). Use S3.");
+    return false;
+#else
+
     Bt* bt = furi_record_open(RECORD_BT);
     bt_stop_stack(bt);
     furi_record_close(RECORD_BT);
     furi_delay_ms(100);
+
+    (void)esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_bt_controller_init(&bt_cfg);
@@ -296,9 +306,18 @@ bool ble_walk_hal_start(void) {
     s_hal_started = true;
     ESP_LOGI(TAG, "BLE Walk HAL ready (gattc_if=%d)", s_gattc_if);
     return true;
+#endif /* !CONFIG_IDF_TARGET_ESP32 */
 }
 
 void ble_walk_hal_stop(void) {
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    /* No controller exists on this target: start is rejected and BTDM memory
+     * is returned to the heap during boot. Teardown APIs are therefore invalid. */
+    s_hal_started = false;
+    s_connected = false;
+    s_scanning = false;
+    return;
+#else
     ESP_LOGI(TAG, "Stopping BLE Walk HAL...");
 
     if(s_connected) {
@@ -334,6 +353,7 @@ void ble_walk_hal_stop(void) {
 
     s_hal_started = false;
     ESP_LOGI(TAG, "BLE Walk HAL stopped");
+#endif
 }
 
 // ---------------------------------------------------------------------------

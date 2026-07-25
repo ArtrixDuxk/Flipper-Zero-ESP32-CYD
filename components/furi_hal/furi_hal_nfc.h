@@ -103,6 +103,9 @@ typedef enum {
  */
 FuriHalNfcError furi_hal_nfc_init(void);
 
+/** Release I2C pins for RF DIP mux reclaim (NM-RF-HAT). Safe no-op if not open. */
+void furi_hal_nfc_bus_force_release(void);
+
 /**
  * @brief Check whether the NFC HAL was properly initialised and is ready.
  *

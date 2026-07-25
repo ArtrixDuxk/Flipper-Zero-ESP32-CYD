@@ -1,6 +1,7 @@
 #include "bt_i.h"
 #include "bt_keys_storage.h"
 
+#include <sdkconfig.h>
 #include <core/check.h>
 #include <furi_hal_bt.h>
 #include <services/battery_service.h>
@@ -544,6 +545,18 @@ int32_t bt_srv(void* p) {
         return 0;
     }
 
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    /* Classic ESP32 (CYD): Bluedroid + serial GATT profile leaves <4KB free heap.
+     * Opening SubGHz/NFC/menus then OOMs and panics in icon decompress (memcpy NULL).
+     * Keep the BT service record so settings UI exists; user can enable BLE later
+     * once more RAM is free — stack is not started automatically. */
+    FURI_LOG_W(
+        TAG,
+        "ESP32 classic: BLE radio stack auto-start DISABLED (low RAM). "
+        "Toggle Bluetooth off in Settings if it was on.");
+    bt->bt_settings.enabled = false;
+    bt->status = BtStatusUnavailable;
+#else
     if(furi_hal_bt_start_radio_stack()) {
         bt_init_keys_settings(bt);
         furi_hal_bt_set_key_storage_change_callback(bt_on_key_storage_change_callback, bt);
@@ -551,6 +564,7 @@ int32_t bt_srv(void* p) {
     } else {
         FURI_LOG_E(TAG, "Radio stack start failed");
     }
+#endif
 
     furi_record_create(RECORD_BT, bt);
 

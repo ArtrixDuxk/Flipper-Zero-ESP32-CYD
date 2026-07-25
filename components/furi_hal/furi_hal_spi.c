@@ -17,6 +17,12 @@
 #define BOARD_CC1101_SPI_SHARED 0
 #endif
 
+/* RF/SD SPI host: same as LCD (T-Embed SPI2) unless the board splits buses
+ * (CYD classic: LCD=HSPI/SPI2, RF+SD=VSPI/SPI3). */
+#ifndef BOARD_RF_SPI_HOST
+#define BOARD_RF_SPI_HOST SPI2_HOST
+#endif
+
 static const char* TAG = "FuriHalSpi";
 static const uint16_t FURI_HAL_SPI_PIN_UNMAPPED = UINT16_MAX;
 static const uint32_t FURI_HAL_SPI_BITBANG_DELAY_US = 1;
@@ -34,11 +40,11 @@ FuriHalSpiBus furi_hal_spi_bus_external = {
 
 FuriHalSpiBus furi_hal_spi_bus_subghz = {
 #if BOARD_CC1101_SPI_SHARED
-    /* T-Embed: CC1101 shares SPI2_HOST with LCD+SD, CS-muxed */
-    .host_id = SPI2_HOST,
+    /* HW SPI shared with SD (and LCD only when BOARD_RF_SPI_HOST == LCD host) */
+    .host_id = BOARD_RF_SPI_HOST,
     .bitbang = false,
 #else
-    /* Waveshare: CC1101 on separate bitbang SPI */
+    /* Separate bitbang SPI (e.g. external module on Waveshare C6) */
     .host_id = -1,
     .bitbang = true,
 #endif
@@ -62,6 +68,15 @@ FuriHalSpiBusHandle furi_hal_spi_bus_handle_external = {
     .mode = 0,
 };
 
+/* On NM-RF-HAT, CC1101 CSN and nRF24 CSN are the same physical pin (DIP mux).
+ * Hardware CS cannot be registered twice on one pin, and that pin must stay
+ * reclaimable for I2C (NFC) / RMT (IR) — so RF uses software CS on that board. */
+#if defined(BOARD_RF_MUX_SHARED_CTRL) && BOARD_RF_MUX_SHARED_CTRL
+#define FURI_HAL_SPI_RF_SOFTWARE_CS 1
+#else
+#define FURI_HAL_SPI_RF_SOFTWARE_CS 0
+#endif
+
 FuriHalSpiBusHandle furi_hal_spi_bus_handle_subghz = {
     .bus = &furi_hal_spi_bus_subghz,
     .miso = &gpio_ext_pa6,
@@ -70,12 +85,14 @@ FuriHalSpiBusHandle furi_hal_spi_bus_handle_subghz = {
     .cs = &gpio_ext_pa4,
     .device = NULL,
     .initialized = false,
+    .software_cs = FURI_HAL_SPI_RF_SOFTWARE_CS,
     .frequency_hz = 100 * 1000,
     .mode = 0,
 };
 
 /* NRF24 sits on the same SPI bus as the SubGhz / CC1101 (T-Embed) but uses its
- * own CS pin -- both devices can be parallel-attached and CS-muxed on the bus. */
+ * own CS pin -- both devices can be parallel-attached and CS-muxed on the bus.
+ * On the HAT, CS is the same wire as CC1101 CSN → software CS (see above). */
 FuriHalSpiBusHandle furi_hal_spi_bus_handle_nrf24 = {
     .bus = &furi_hal_spi_bus_subghz,
     .miso = &gpio_ext_pa6,
@@ -84,6 +101,7 @@ FuriHalSpiBusHandle furi_hal_spi_bus_handle_nrf24 = {
     .cs = &gpio_nrf24_cs,
     .device = NULL,
     .initialized = false,
+    .software_cs = FURI_HAL_SPI_RF_SOFTWARE_CS,
     .frequency_hz = 4 * 1000 * 1000,
     .mode = 0,
 };
@@ -189,16 +207,48 @@ void furi_hal_spi_bus_handle_init(const FuriHalSpiBusHandle* handle) {
         return;
     }
 
+    /* Always drive CS as GPIO when using software CS (HAT shared pin). */
+    if(mutable_handle->software_cs || bus->bitbang) {
+        furi_hal_gpio_init_simple(handle->cs, GpioModeOutputPushPull);
+        furi_hal_gpio_write(handle->cs, true);
+    }
+
     if(bus->bitbang) {
         mutable_handle->device = NULL;
         mutable_handle->initialized = true;
         return;
     }
 
+    /* If CSN is shared with another RF handle already registered with HW CS,
+     * force software CS so both devices can live on the bus. */
+    if(!mutable_handle->software_cs && furi_hal_spi_pin_valid(handle->cs)) {
+        const FuriHalSpiBusHandle* peers[] = {
+            &furi_hal_spi_bus_handle_subghz,
+            &furi_hal_spi_bus_handle_nrf24,
+        };
+        for(size_t i = 0; i < sizeof(peers) / sizeof(peers[0]); i++) {
+            const FuriHalSpiBusHandle* peer = peers[i];
+            if(peer == handle) continue;
+            if(peer->bus != bus) continue;
+            if(!peer->initialized || !furi_hal_spi_pin_valid(peer->cs)) continue;
+            if(peer->cs->pin == handle->cs->pin) {
+                ESP_LOGW(
+                    TAG,
+                    "CS GPIO%u already used by peer — switching to software CS",
+                    handle->cs->pin);
+                mutable_handle->software_cs = true;
+                furi_hal_gpio_init_simple(handle->cs, GpioModeOutputPushPull);
+                furi_hal_gpio_write(handle->cs, true);
+                break;
+            }
+        }
+    }
+
     spi_device_interface_config_t dev_config = {
-        .clock_speed_hz = mutable_handle->frequency_hz ? (int)mutable_handle->frequency_hz : 2 * 1000 * 1000,
+        .clock_speed_hz = mutable_handle->frequency_hz ? (int)mutable_handle->frequency_hz :
+                                                         2 * 1000 * 1000,
         .mode = mutable_handle->mode,
-        .spics_io_num = handle->cs->pin,
+        .spics_io_num = mutable_handle->software_cs ? -1 : (int)handle->cs->pin,
         .queue_size = 1,
         .flags = 0,
     };
@@ -214,6 +264,13 @@ void furi_hal_spi_bus_handle_init(const FuriHalSpiBusHandle* handle) {
 
     mutable_handle->device = device;
     mutable_handle->initialized = true;
+    ESP_LOGI(
+        TAG,
+        "SPI device host=%d CS=GPIO%u %s freq=%lu",
+        bus->host_id,
+        handle->cs->pin,
+        mutable_handle->software_cs ? "soft-CS" : "hw-CS",
+        (unsigned long)mutable_handle->frequency_hz);
 }
 
 void furi_hal_spi_bus_handle_deinit(const FuriHalSpiBusHandle* handle) {
@@ -320,6 +377,11 @@ bool furi_hal_spi_bus_trx(
         return true;
     }
 
+    const bool soft_cs = handle->software_cs && furi_hal_spi_pin_valid(handle->cs);
+    if(soft_cs) {
+        furi_hal_gpio_write(handle->cs, false);
+    }
+
     spi_transaction_t transaction = {
         .length = size * 8,
         .tx_buffer = tx_buffer,
@@ -328,6 +390,11 @@ bool furi_hal_spi_bus_trx(
 
     esp_err_t err =
         spi_device_polling_transmit((spi_device_handle_t)handle->device, &transaction);
+
+    if(soft_cs) {
+        furi_hal_gpio_write(handle->cs, true);
+    }
+
     if(err != ESP_OK) {
         ESP_LOGW(TAG, "spi_device_polling_transmit failed: %s", esp_err_to_name(err));
         furi_hal_spi_fill_stub_rx(rx_buffer, size);

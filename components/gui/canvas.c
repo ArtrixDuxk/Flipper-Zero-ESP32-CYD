@@ -263,7 +263,9 @@ void canvas_draw_bitmap(
     y += canvas->offset_y;
     uint8_t* bitmap_data = NULL;
     compress_icon_decode(canvas->compress_icon, compressed_bitmap_data, &bitmap_data);
-    canvas_draw_u8g2_bitmap(&canvas->fb, x, y, width, height, bitmap_data, IconRotation0);
+    if(bitmap_data) {
+        canvas_draw_u8g2_bitmap(&canvas->fb, x, y, width, height, bitmap_data, IconRotation0);
+    }
 }
 
 void canvas_draw_icon_animation(
@@ -279,6 +281,9 @@ void canvas_draw_icon_animation(
     uint8_t* icon_data = NULL;
     compress_icon_decode(
         canvas->compress_icon, icon_animation_get_data(icon_animation), &icon_data);
+    if(!icon_data) {
+        return; /* OOM or decode failure — skip frame, do not crash */
+    }
     canvas_draw_u8g2_bitmap(
         &canvas->fb,
         x,

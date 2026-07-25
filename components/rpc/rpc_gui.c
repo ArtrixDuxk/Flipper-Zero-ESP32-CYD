@@ -71,6 +71,9 @@ typedef struct {
     // Transmit
     PB_Main* transmit_frame;
     FuriThread* transmit_thread;
+    FuriMutex* stream_mutex;
+    uint8_t* pending_frame_buffer;
+    CanvasOrientation pending_frame_orientation;
 
     bool virtual_display_not_empty;
     bool is_streaming;
@@ -80,6 +83,8 @@ typedef struct {
 
     ViewPort* rpc_session_active_viewport;
 } RpcGuiSystem;
+
+static RpcGuiSystem* s_active_rpc_gui = NULL;
 
 static const PB_Gui_ScreenOrientation rpc_system_gui_screen_orientation_map[] = {
     [CanvasOrientationHorizontal] = PB_Gui_ScreenOrientation_HORIZONTAL,
@@ -97,13 +102,15 @@ static void rpc_system_gui_screen_stream_frame_callback(
     furi_assert(context);
 
     RpcGuiSystem* rpc_gui = (RpcGuiSystem*)context;
-    uint8_t* buffer = rpc_gui->transmit_frame->content.gui_screen_frame.data->bytes;
 
     furi_assert(size == rpc_gui->transmit_frame->content.gui_screen_frame.data->size);
 
-    memcpy(buffer, data, size);
-    rpc_gui->transmit_frame->content.gui_screen_frame.orientation =
-        rpc_system_gui_screen_orientation_map[orientation];
+    /* The GUI and UART encoder run on different threads. Keep a pending copy
+     * so a redraw cannot modify the protobuf payload while it is encoded. */
+    furi_check(furi_mutex_acquire(rpc_gui->stream_mutex, FuriWaitForever) == FuriStatusOk);
+    memcpy(rpc_gui->pending_frame_buffer, data, size);
+    rpc_gui->pending_frame_orientation = orientation;
+    furi_check(furi_mutex_release(rpc_gui->stream_mutex) == FuriStatusOk);
 
     furi_thread_flags_set(furi_thread_get_id(rpc_gui->transmit_thread), RpcGuiWorkerFlagTransmit);
 }
@@ -120,13 +127,26 @@ static int32_t rpc_system_gui_screen_stream_frame_transmit_thread(void* context)
 
         if(flags & RpcGuiWorkerFlagTransmit) {
             transmit_time = furi_get_tick();
+
+            furi_check(
+                furi_mutex_acquire(rpc_gui->stream_mutex, FuriWaitForever) == FuriStatusOk);
+            memcpy(
+                rpc_gui->transmit_frame->content.gui_screen_frame.data->bytes,
+                rpc_gui->pending_frame_buffer,
+                rpc_gui->transmit_frame->content.gui_screen_frame.data->size);
+            rpc_gui->transmit_frame->content.gui_screen_frame.orientation =
+                rpc_system_gui_screen_orientation_map[rpc_gui->pending_frame_orientation];
+            furi_check(furi_mutex_release(rpc_gui->stream_mutex) == FuriStatusOk);
+
             rpc_send(rpc_gui->session, rpc_gui->transmit_frame);
             transmit_time = furi_get_tick() - transmit_time;
 
-            // Guaranteed bandwidth reserve
-            uint32_t extra_delay = transmit_time / 20;
-            if(extra_delay > 500) extra_delay = 500;
-            if(extra_delay) furi_delay_tick(extra_delay);
+            /* A full 128x64 frame occupies the UART for roughly 100 ms. The
+             * effective CH340 throughput on CYD is lower once RPC framing and
+             * Qt reads are included. Cap at 2.5 FPS so input acknowledgements
+             * always have bandwidth and screen frames remain disposable. */
+            const uint32_t frame_period = furi_ms_to_ticks(400);
+            if(transmit_time < frame_period) furi_delay_tick(frame_period - transmit_time);
         }
 
         if(flags & RpcGuiWorkerFlagExit) {
@@ -135,6 +155,78 @@ static int32_t rpc_system_gui_screen_stream_frame_transmit_thread(void* context)
     }
 
     return 0;
+}
+
+static void rpc_system_gui_release_stream(RpcGuiSystem* rpc_gui) {
+    if(!rpc_gui || !rpc_gui->is_streaming) return;
+    rpc_gui->is_streaming = false;
+    gui_remove_framebuffer_callback(
+        rpc_gui->gui, rpc_system_gui_screen_stream_frame_callback, rpc_gui);
+    furi_thread_flags_set(furi_thread_get_id(rpc_gui->transmit_thread), RpcGuiWorkerFlagExit);
+    furi_thread_join(rpc_gui->transmit_thread);
+    furi_thread_free(rpc_gui->transmit_thread);
+    rpc_gui->transmit_thread = NULL;
+    free(rpc_gui->pending_frame_buffer);
+    rpc_gui->pending_frame_buffer = NULL;
+    furi_mutex_free(rpc_gui->stream_mutex);
+    rpc_gui->stream_mutex = NULL;
+    pb_release(&PB_Main_msg, rpc_gui->transmit_frame);
+    free(rpc_gui->transmit_frame);
+    rpc_gui->transmit_frame = NULL;
+}
+
+static bool rpc_system_gui_allocate_stream(RpcGuiSystem* rpc_gui) {
+    size_t framebuffer_size = gui_get_framebuffer_size(rpc_gui->gui);
+    rpc_gui->transmit_frame = calloc(1, sizeof(PB_Main));
+    if(!rpc_gui->transmit_frame) goto fail;
+    rpc_gui->transmit_frame->which_content = PB_Main_gui_screen_frame_tag;
+    rpc_gui->transmit_frame->command_status = PB_CommandStatus_OK;
+    rpc_gui->transmit_frame->content.gui_screen_frame.data =
+        malloc(PB_BYTES_ARRAY_T_ALLOCSIZE(framebuffer_size));
+    if(!rpc_gui->transmit_frame->content.gui_screen_frame.data) goto fail;
+    rpc_gui->transmit_frame->content.gui_screen_frame.data->size = framebuffer_size;
+    rpc_gui->pending_frame_buffer = malloc(framebuffer_size);
+    if(!rpc_gui->pending_frame_buffer) goto fail;
+    rpc_gui->stream_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    if(!rpc_gui->stream_mutex) goto fail;
+    rpc_gui->transmit_thread = furi_thread_try_alloc_ex(
+        "GuiRpcWorker", 4096, rpc_system_gui_screen_stream_frame_transmit_thread, rpc_gui);
+    if(!rpc_gui->transmit_thread) goto fail;
+
+    furi_thread_start(rpc_gui->transmit_thread);
+    rpc_gui->is_streaming = true;
+    gui_add_framebuffer_callback(
+        rpc_gui->gui, rpc_system_gui_screen_stream_frame_callback, rpc_gui);
+    return true;
+
+fail:
+    FURI_LOG_E(TAG, "Not enough RAM to start screen stream");
+    if(rpc_gui->transmit_thread) {
+        furi_thread_free(rpc_gui->transmit_thread);
+        rpc_gui->transmit_thread = NULL;
+    }
+    if(rpc_gui->stream_mutex) {
+        furi_mutex_free(rpc_gui->stream_mutex);
+        rpc_gui->stream_mutex = NULL;
+    }
+    free(rpc_gui->pending_frame_buffer);
+    rpc_gui->pending_frame_buffer = NULL;
+    if(rpc_gui->transmit_frame) {
+        pb_release(&PB_Main_msg, rpc_gui->transmit_frame);
+        free(rpc_gui->transmit_frame);
+        rpc_gui->transmit_frame = NULL;
+    }
+    return false;
+}
+
+void rpc_system_gui_suspend_screen_stream(void) {
+    rpc_system_gui_release_stream(s_active_rpc_gui);
+}
+
+void rpc_system_gui_resume_screen_stream(void) {
+    if(s_active_rpc_gui && !s_active_rpc_gui->is_streaming) {
+        (void)rpc_system_gui_allocate_stream(s_active_rpc_gui);
+    }
 }
 
 static void rpc_system_gui_start_screen_stream_process(const PB_Main* request, void* context) {
@@ -151,24 +243,11 @@ static void rpc_system_gui_start_screen_stream_process(const PB_Main* request, v
         rpc_send_and_release_empty(
             session, request->command_id, PB_CommandStatus_ERROR_VIRTUAL_DISPLAY_ALREADY_STARTED);
     } else {
-        rpc_send_and_release_empty(session, request->command_id, PB_CommandStatus_OK);
-
-        rpc_gui->is_streaming = true;
-        size_t framebuffer_size = gui_get_framebuffer_size(rpc_gui->gui);
-        // Reusable Frame
-        rpc_gui->transmit_frame = malloc(sizeof(PB_Main));
-        rpc_gui->transmit_frame->which_content = PB_Main_gui_screen_frame_tag;
-        rpc_gui->transmit_frame->command_status = PB_CommandStatus_OK;
-        rpc_gui->transmit_frame->content.gui_screen_frame.data =
-            malloc(PB_BYTES_ARRAY_T_ALLOCSIZE(framebuffer_size));
-        rpc_gui->transmit_frame->content.gui_screen_frame.data->size = framebuffer_size;
-        // Transmission thread for async TX
-        rpc_gui->transmit_thread = furi_thread_alloc_ex(
-            "GuiRpcWorker", 4096, rpc_system_gui_screen_stream_frame_transmit_thread, rpc_gui);
-        furi_thread_start(rpc_gui->transmit_thread);
-        // GUI framebuffer callback
-        gui_add_framebuffer_callback(
-            rpc_gui->gui, rpc_system_gui_screen_stream_frame_callback, context);
+        const bool started = rpc_system_gui_allocate_stream(rpc_gui);
+        rpc_send_and_release_empty(
+            session,
+            request->command_id,
+            started ? PB_CommandStatus_OK : PB_CommandStatus_ERROR);
     }
 }
 
@@ -182,20 +261,7 @@ static void rpc_system_gui_stop_screen_stream_process(const PB_Main* request, vo
     RpcSession* session = rpc_gui->session;
     furi_assert(session);
 
-    if(rpc_gui->is_streaming) {
-        rpc_gui->is_streaming = false;
-        // Remove GUI framebuffer callback
-        gui_remove_framebuffer_callback(
-            rpc_gui->gui, rpc_system_gui_screen_stream_frame_callback, context);
-        // Stop and release worker thread
-        furi_thread_flags_set(furi_thread_get_id(rpc_gui->transmit_thread), RpcGuiWorkerFlagExit);
-        furi_thread_join(rpc_gui->transmit_thread);
-        furi_thread_free(rpc_gui->transmit_thread);
-        // Release frame
-        pb_release(&PB_Main_msg, rpc_gui->transmit_frame);
-        free(rpc_gui->transmit_frame);
-        rpc_gui->transmit_frame = NULL;
-    }
+    rpc_system_gui_release_stream(rpc_gui);
 
     rpc_send_and_release_empty(session, request->command_id, PB_CommandStatus_OK);
 }
@@ -401,10 +467,11 @@ static void rpc_active_session_icon_draw_callback(Canvas* canvas, void* context)
 void* rpc_system_gui_alloc(RpcSession* session) {
     furi_assert(session);
 
-    RpcGuiSystem* rpc_gui = malloc(sizeof(RpcGuiSystem));
+    RpcGuiSystem* rpc_gui = calloc(1, sizeof(RpcGuiSystem));
     rpc_gui->gui = furi_record_open(RECORD_GUI);
     rpc_gui->input_events = furi_record_open(RECORD_INPUT_EVENTS);
     rpc_gui->session = session;
+    s_active_rpc_gui = rpc_gui;
 
     // Active session icon
     const RpcOwner owner = rpc_session_get_owner(rpc_gui->session);
@@ -448,6 +515,7 @@ void* rpc_system_gui_alloc(RpcSession* session) {
 void rpc_system_gui_free(void* context) {
     furi_assert(context);
     RpcGuiSystem* rpc_gui = context;
+    if(s_active_rpc_gui == rpc_gui) s_active_rpc_gui = NULL;
     furi_assert(rpc_gui->gui);
 
     // Release ongoing inputs to avoid lockup
@@ -476,20 +544,7 @@ void rpc_system_gui_free(void* context) {
         view_port_free(rpc_gui->rpc_session_active_viewport);
     }
 
-    if(rpc_gui->is_streaming) {
-        rpc_gui->is_streaming = false;
-        // Remove GUI framebuffer callback
-        gui_remove_framebuffer_callback(
-            rpc_gui->gui, rpc_system_gui_screen_stream_frame_callback, context);
-        // Stop and release worker thread
-        furi_thread_flags_set(furi_thread_get_id(rpc_gui->transmit_thread), RpcGuiWorkerFlagExit);
-        furi_thread_join(rpc_gui->transmit_thread);
-        furi_thread_free(rpc_gui->transmit_thread);
-        // Release frame
-        pb_release(&PB_Main_msg, rpc_gui->transmit_frame);
-        free(rpc_gui->transmit_frame);
-        rpc_gui->transmit_frame = NULL;
-    }
+    rpc_system_gui_release_stream(rpc_gui);
     furi_record_close(RECORD_INPUT_EVENTS);
     furi_record_close(RECORD_GUI);
     free(rpc_gui);

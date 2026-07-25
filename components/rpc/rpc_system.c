@@ -87,7 +87,7 @@ static void rpc_system_system_device_info_process(const PB_Main* request, void* 
     RpcSession* session = (RpcSession*)context;
     furi_assert(session);
 
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     response->command_id = request->command_id;
     response->which_content = PB_Main_system_device_info_response_tag;
     response->command_status = PB_CommandStatus_OK;
@@ -113,7 +113,7 @@ static void rpc_system_system_get_datetime_process(const PB_Main* request, void*
     DateTime datetime;
     furi_hal_rtc_get_datetime(&datetime);
 
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     response->command_id = request->command_id;
     response->which_content = PB_Main_system_get_datetime_response_tag;
     response->command_status = PB_CommandStatus_OK;
@@ -182,7 +182,7 @@ static void rpc_system_system_get_power_info_process(const PB_Main* request, voi
     RpcSession* session = (RpcSession*)context;
     furi_assert(session);
 
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     response->command_id = request->command_id;
     response->which_content = PB_Main_system_power_info_response_tag;
     response->command_status = PB_CommandStatus_OK;
@@ -205,7 +205,7 @@ static void rpc_system_system_protobuf_version_process(const PB_Main* request, v
     RpcSession* session = (RpcSession*)context;
     furi_assert(session);
 
-    PB_Main* response = malloc(sizeof(PB_Main));
+    PB_Main* response = calloc(1, sizeof(PB_Main));
     response->command_id = request->command_id;
     response->has_next = false;
     response->command_status = PB_CommandStatus_OK;

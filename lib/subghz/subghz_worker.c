@@ -1,8 +1,19 @@
 #include "subghz_worker.h"
 
 #include <furi.h>
+#include <sdkconfig.h>
 
 #define TAG "SubGhzWorker"
+
+#if CONFIG_IDF_TARGET_ESP32 && !CONFIG_SPIRAM
+/* The original queue stores 4096 radio edges (roughly 16 KiB). On classic
+ * ESP32 this competes with the qFlipper stream and WiFi reserve. The worker
+ * consumes edges continuously, so 1024 entries retain a useful burst margin
+ * while returning about 12 KiB of internal RAM. */
+#define SUBGHZ_WORKER_BUFFER_ITEMS 1024u
+#else
+#define SUBGHZ_WORKER_BUFFER_ITEMS 4096u
+#endif
 
 struct SubGhzWorker {
     FuriThread* thread;
@@ -81,12 +92,21 @@ static int32_t subghz_worker_thread_callback(void* context) {
 
 SubGhzWorker* subghz_worker_alloc(void) {
     SubGhzWorker* instance = calloc(1, sizeof(SubGhzWorker));
+    if(!instance) return NULL;
 
+    /* Allocate the edge queue first because it is the larger contiguous
+     * block. Both allocations are recoverable at this app boundary. */
+    instance->stream = furi_stream_buffer_try_alloc(
+        sizeof(LevelDuration) * SUBGHZ_WORKER_BUFFER_ITEMS, sizeof(LevelDuration));
     instance->thread =
-        furi_thread_alloc_ex("SubGhzWorker", 3072, subghz_worker_thread_callback, instance);
-
-    instance->stream =
-        furi_stream_buffer_alloc(sizeof(LevelDuration) * 4096, sizeof(LevelDuration));
+        furi_thread_try_alloc_ex("SubGhzWorker", 3072, subghz_worker_thread_callback, instance);
+    if(!instance->stream || !instance->thread) {
+        if(instance->thread) furi_thread_free(instance->thread);
+        if(instance->stream) furi_stream_buffer_free(instance->stream);
+        free(instance);
+        FURI_LOG_E(TAG, "Not enough RAM for radio worker");
+        return NULL;
+    }
 
     //setting default filter in us
     instance->filter_duration = 30;

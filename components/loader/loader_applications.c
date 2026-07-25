@@ -7,7 +7,6 @@
 #include <gui/view_holder.h>
 #include <gui/modules/loading.h>
 #include <toolbox/path.h>
-#include <esp_rom_sys.h>
 
 #define TAG "LoaderApplications"
 
@@ -16,13 +15,6 @@ struct LoaderApplications {
     void (*closed_cb)(void*);
     void* context;
 };
-
-static void loader_applications_trace(const char* step) {
-    esp_rom_printf(
-        "\r\n[LA] %s free=%u\r\n",
-        step,
-        (unsigned)furi_thread_get_stack_space(furi_thread_get_current_id()));
-}
 
 static int32_t loader_applications_thread(void* p);
 
@@ -102,7 +94,6 @@ static bool loader_applications_item_callback(
 }
 
 static bool loader_applications_select_app(LoaderApplicationsApp* loader_applications_app) {
-    loader_applications_trace("select_begin");
     const DialogsFileBrowserOptions browser_options = {
         .extension = ".fap|.js",
         .skip_assets = true,
@@ -118,7 +109,6 @@ static bool loader_applications_select_app(LoaderApplicationsApp* loader_applica
         loader_applications_app->file_path,
         loader_applications_app->file_path,
         &browser_options);
-    loader_applications_trace(result ? "select_done_true" : "select_done_false");
     return result;
 }
 
@@ -147,14 +137,12 @@ static void loader_pubsub_callback(const void* message, void* context) {
 
 static void
     loader_applications_start_app(LoaderApplicationsApp* app, const char* name, const char* args) {
-    loader_applications_trace("start_app_begin");
     // load app
     FuriThreadId thread_id = furi_thread_get_current_id();
     FuriPubSubSubscription* subscription =
         furi_pubsub_subscribe(loader_get_pubsub(app->loader), loader_pubsub_callback, thread_id);
 
     LoaderStatus status = loader_start_with_gui_error(app->loader, name, args);
-    loader_applications_trace("start_app_after_loader");
 
     if(status == LoaderStatusOk) {
         furi_thread_flags_wait(APPLICATION_STOP_EVENT, FuriFlagWaitAny, FuriWaitForever);
@@ -166,31 +154,25 @@ static void
 
 static int32_t loader_applications_thread(void* p) {
     LoaderApplications* loader_applications = p;
-    loader_applications_trace("thread_start");
     LoaderApplicationsApp* app = loader_applications_app_alloc();
-    loader_applications_trace("app_alloc");
 
     view_holder_set_view(app->view_holder, loading_get_view(app->loading));
 
     while(loader_applications_select_app(app)) {
         if(furi_string_end_with(app->file_path, ".js")) {
-            loader_applications_trace("launch_js");
             loader_applications_start_app(
                 app, "js_app", furi_string_get_cstr(app->file_path));
         } else {
-            loader_applications_trace("launch_fap");
             loader_applications_start_app(app, furi_string_get_cstr(app->file_path), NULL);
         }
     }
 
     view_holder_set_view(app->view_holder, NULL);
     loader_applications_app_free(app);
-    loader_applications_trace("app_free");
 
     if(loader_applications->closed_cb) {
         loader_applications->closed_cb(loader_applications->context);
     }
 
-    loader_applications_trace("thread_end");
     return 0;
 }

@@ -14,8 +14,8 @@ extern "C" {
  * host PC can talk to the device. Runs in its own FuriThread so the user stays
  * on the desktop while the bridge is active (toggled from the lock menu).
  *
- * Only the ESP32-S3 / S2 path has USB-OTG; on other targets start() is a no-op
- * that returns false.
+ * ESP32-S3 / S2 use the USB-OTG CDC device. Classic ESP32 boards such as the
+ * CYD use UART0 through their CH340 USB-to-UART adapter instead.
  */
 
 /** Install the composite (idempotent — reuses an already-installed one) and
@@ -30,6 +30,18 @@ void qflipper_bridge_stop(void);
 
 /** True while the bridge thread is running. */
 bool qflipper_bridge_is_active(void);
+
+/** True only while the bridge is passing binary RPC frames. Log sinks use this
+ * to keep text diagnostics from corrupting the serial protobuf stream. */
+bool qflipper_bridge_is_rpc_active(void);
+
+/** Give qFlipper/WiFi reservations temporarily to a memory-intensive app.
+ * begin() pauses screen frames and releases idle WiFi memory; resume() brings
+ * screen frames back after app allocation. restore() is called after the app
+ * is freed and rebuilds the protected WiFi reserve before resuming frames. */
+bool qflipper_bridge_memory_handoff_begin(void);
+void qflipper_bridge_memory_handoff_resume(void);
+void qflipper_bridge_memory_handoff_restore(void);
 
 #ifdef __cplusplus
 }

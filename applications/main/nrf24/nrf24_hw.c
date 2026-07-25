@@ -4,10 +4,14 @@
 #include <furi_hal_resources.h>
 #include <furi_hal_spi.h>
 #include <furi_hal_spi_bus.h>
+#include <furi_hal_rf_mux.h>
 #include <esp_rom_sys.h>
+#include <esp_log.h>
 #include <string.h>
 #include <stdlib.h>
 #include "boards/board.h"
+
+static const char* TAG = "Nrf24Hw";
 
 #define NRF_CMD_R_REGISTER  0x00
 #define NRF_CMD_W_REGISTER  0x20
@@ -61,13 +65,22 @@
 static const GpioPin nrf24_ce = {.port = NULL, .pin = BOARD_PIN_NRF24_CE};
 
 void nrf24_hw_init(void) {
+    /* Claim shared HAT pins: CSN=GPIO27 high, CE=GPIO22 low; frees I2C if NFC had them. */
+    furi_hal_rf_mux_claim(FuriHalRfMuxPathNrf24);
     furi_hal_gpio_init_simple(&nrf24_ce, GpioModeOutputPushPull);
     furi_hal_gpio_write(&nrf24_ce, false);
+    /* Ensure SPI handle (software CS on HAT) is ready */
+    furi_hal_spi_bus_handle_init(&furi_hal_spi_bus_handle_nrf24);
 }
 
 void nrf24_hw_deinit(void) {
     furi_hal_gpio_write(&nrf24_ce, false);
-    furi_hal_gpio_init_simple(&nrf24_ce, GpioModeAnalog);
+    /* On mux boards leave pin as input so SubGHz GDO0 / NFC can take over */
+    if(furi_hal_rf_mux_is_shared()) {
+        furi_hal_gpio_init_simple(&nrf24_ce, GpioModeInput);
+    } else {
+        furi_hal_gpio_init_simple(&nrf24_ce, GpioModeAnalog);
+    }
 }
 
 void nrf24_hw_acquire(void) {
@@ -107,12 +120,23 @@ void nrf24_hw_ce(bool high) {
 }
 
 bool nrf24_hw_probe(void) {
+    /* Power-up + register write/read identity test */
     nrf24_hw_write_reg(NRF_REG_CONFIG, NRF_CONFIG_PWR_UP);
     esp_rom_delay_us(5000);
     nrf24_hw_write_reg(NRF_REG_RF_CH, 0x55);
-    if(nrf24_hw_read_reg(NRF_REG_RF_CH) != 0x55) return false;
+    uint8_t ch1 = nrf24_hw_read_reg(NRF_REG_RF_CH);
+    if(ch1 != 0x55) {
+        ESP_LOGW(TAG, "probe fail: RF_CH wrote 0x55 read 0x%02X (DIP pos 2? SPI/CSN?)", ch1);
+        return false;
+    }
     nrf24_hw_write_reg(NRF_REG_RF_CH, 0x2A);
-    return nrf24_hw_read_reg(NRF_REG_RF_CH) == 0x2A;
+    uint8_t ch2 = nrf24_hw_read_reg(NRF_REG_RF_CH);
+    if(ch2 != 0x2A) {
+        ESP_LOGW(TAG, "probe fail: RF_CH wrote 0x2A read 0x%02X", ch2);
+        return false;
+    }
+    ESP_LOGI(TAG, "nRF24 probe OK");
+    return true;
 }
 
 void nrf24_hw_power_down(void) {

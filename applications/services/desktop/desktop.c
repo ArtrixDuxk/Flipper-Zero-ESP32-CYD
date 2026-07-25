@@ -18,6 +18,9 @@
 #include "helpers/mesh_config.h"
 #include "helpers/mesh_service.h"
 #include "helpers/mesh_capture.h"
+#include "helpers/qflipper_bridge.h"
+
+#include "sdkconfig.h"
 
 #include "furi_hal_power.h"
 
@@ -682,6 +685,15 @@ int32_t desktop_srv(void* p) {
     Desktop* desktop = desktop_alloc();
 
     desktop_init_settings(desktop);
+
+    /* CYD exposes its serial port through a CH340 rather than USB-OTG. Keep
+     * the RPC bridge ready from boot so the qFlipper fork can discover it
+     * without requiring a touch-screen action first. */
+#if CONFIG_IDF_TARGET_ESP32
+    if(!qflipper_bridge_start()) {
+        FURI_LOG_W(TAG, "qFlipper UART bridge unavailable");
+    }
+#endif
 
     /* Mesh: der T-Embed ist immer Master; der Master-Service läuft on-demand in
      * der Mesh-Clients-Scene — beim Boot ist nichts zu starten. */

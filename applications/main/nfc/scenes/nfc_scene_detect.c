@@ -71,9 +71,14 @@ static void nfc_scene_detect_button_callback(
     InputType type,
     void* context) {
     NfcApp* instance = context;
-    if(type == InputTypeShort && result == GuiButtonTypeCenter) {
+    if(type != InputTypeShort) return;
+    if(result == GuiButtonTypeCenter) {
         view_dispatcher_send_custom_event(
             instance->view_dispatcher, NfcCustomEventChameleonButton);
+    } else if(result == GuiButtonTypeLeft) {
+        /* Explicit on-screen Back (touch: swipe left / left edge / Left key) */
+        view_dispatcher_send_custom_event(
+            instance->view_dispatcher, NfcCustomEventDetectBack);
     }
 }
 
@@ -93,6 +98,12 @@ static void nfc_scene_detect_build_view(NfcApp* instance) {
         AlignTop,
         FontSecondary,
         connected ? "Place Card\nat\nChameleon" : "Hold card\nnext to\nDevice");
+    widget_add_button_element(
+        instance->widget,
+        GuiButtonTypeLeft,
+        "Back",
+        nfc_scene_detect_button_callback,
+        instance);
     widget_add_button_element(
         instance->widget,
         GuiButtonTypeCenter,
@@ -141,7 +152,15 @@ bool nfc_scene_detect_on_event(void* context, SceneManagerEvent event) {
     NfcApp* instance = context;
     bool consumed = false;
 
-    if(event.type == SceneManagerEventTypeCustom) {
+    if(event.type == SceneManagerEventTypeBack ||
+       (event.type == SceneManagerEventTypeCustom && event.event == NfcCustomEventDetectBack)) {
+        /* Always leave detect cleanly — scanner stop runs in on_exit */
+        if(!scene_manager_previous_scene(instance->scene_manager)) {
+            scene_manager_search_and_switch_to_previous_scene(
+                instance->scene_manager, NfcSceneStart);
+        }
+        consumed = true;
+    } else if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == NfcCustomEventWorkerExit) {
             if(nfc_detected_protocols_get_num(instance->detected_protocols) > 1) {
                 notification_message(instance->notifications, &sequence_single_vibro);

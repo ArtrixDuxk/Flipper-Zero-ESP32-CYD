@@ -1,9 +1,15 @@
 #pragma once
 
+#include "sdkconfig.h"
+
 #include <gui/view.h>
 #include <gui/view_dispatcher.h>
 
+#if CONFIG_IDF_TARGET_ESP32 && !CONFIG_SPIRAM
+#define WLAN_CONNECT_VIEW_MAX_APS 16
+#else
 #define WLAN_CONNECT_VIEW_MAX_APS 64
+#endif
 #define WLAN_CONNECT_VIEW_SSID_MAX 33
 #define WLAN_CONNECT_VIEW_MAX_MENU_ITEMS 6
 #define WLAN_CONNECT_VIEW_MENU_LABEL_MAX 20

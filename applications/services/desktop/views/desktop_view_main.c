@@ -49,9 +49,6 @@ bool desktop_main_input_callback(InputEvent* event, void* context) {
 
     DesktopMainView* main_view = context;
 
-    esp_rom_printf("\r\n[DMAIN] key=%d type=%d dummy=%d\r\n",
-        event->key, event->type, main_view->dummy_mode);
-
     if(main_view->dummy_mode == false) {
         if(event->type == InputTypeShort) {
             if(event->key == InputKeyOk) {

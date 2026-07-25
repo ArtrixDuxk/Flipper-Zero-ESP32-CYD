@@ -16,22 +16,29 @@ declare -A TARGETS=(
     ["esp32s3"]="esp32s3"
     ["waveshare_c6"]="esp32c6"
     ["t_embed"]="esp32s3"
+    ["cyd"]="esp32"
 )
 declare -A NAMES=(
     ["esp32s3"]="esp32s3_generic"
     ["waveshare_c6"]="waveshare_c6_1.9"
     ["t_embed"]="lilygo_t_embed_cc1101"
+    ["cyd"]="esp32_cyd_nm_rf_hat"
 )
 declare -A DIRS=(
     ["esp32s3"]="build_s3"
     ["waveshare_c6"]="build_waveshare_c6"
     ["t_embed"]="build_t_embed"
+    ["cyd"]="build_cyd"
+)
+# Optional extra SDKCONFIG_DEFAULTS fragments per board key
+declare -A SDK_DEFAULTS=(
+    ["cyd"]="sdkconfig.defaults;sdkconfig.defaults.esp32_cyd"
 )
 
 usage() {
     cat <<EOF
 Usage: $(basename "$0") --board <name> [options]
-Boards: esp32s3, waveshare_c6, t_embed
+Boards: esp32s3, waveshare_c6, t_embed, cyd
 Options: -p|--port, -m|--monitor, --build-only
 EOF
 }
@@ -39,7 +46,7 @@ EOF
 detect_port() {
     local matches=()
     shopt -s nullglob
-    matches=(/dev/cu.usbmodem* /dev/cu.usbserial* /dev/ttyACM*)
+    matches=(/dev/ttyUSB* /dev/ttyACM* /dev/cu.usbmodem* /dev/cu.usbserial*)
     shopt -u nullglob
     if [[ "${#matches[@]}" -eq 1 ]]; then
         printf '%s\n' "${matches[0]}"
@@ -74,7 +81,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${SELECTED_BOARD}" || -z "${NAMES[$SELECTED_BOARD]+x}" ]]; then
-    echo "Error: Valid --board required (esp32s3, waveshare_c6, t_embed)." >&2
+    echo "Error: Valid --board required (esp32s3, waveshare_c6, t_embed, cyd)." >&2
     exit 1
 fi
 
@@ -116,12 +123,16 @@ if [[ -f "${BUILD_DIR}/sdkconfig" ]]; then
     fi
 fi
 
-# Set target (creates/updates sdkconfig)
-idf.py -B "${BUILD_DIR}" set-target "${TARGET}"
-
-# Construct command
+# Construct command — pass FLIPPER_BOARD on set-target too so the cache
+# never sticks on the Waveshare default.
 COMMANDS=("reconfigure" "build")
 PY_OPTS=("-B" "${BUILD_DIR}" "-DFLIPPER_BOARD=${BOARD}")
+if [[ -n "${SDK_DEFAULTS[$SELECTED_BOARD]+x}" ]]; then
+    PY_OPTS+=("-DSDKCONFIG_DEFAULTS=${SDK_DEFAULTS[$SELECTED_BOARD]}")
+fi
+
+# Set target (creates/updates sdkconfig)
+idf.py "${PY_OPTS[@]}" set-target "${TARGET}"
 
 if [[ "${BUILD_ONLY}" -eq 0 ]]; then
     COMMANDS+=("flash")

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sdkconfig.h"
+
 #include <furi.h>
 #include <gui/gui.h>
 #include <gui/scene_manager.h>
@@ -30,8 +32,14 @@
 #include "views/wlan_sd_update_view.h"
 
 #define WLAN_APP_TAG "WlanApp"
-#define WLAN_APP_MAX_APS 64
+#if CONFIG_IDF_TARGET_ESP32 && !CONFIG_SPIRAM
+/* Classic CYD has no PSRAM and wlan_hal keeps at most 16 scan results. */
+#define WLAN_APP_MAX_APS     16
+#define WLAN_APP_MAX_DEVICES 32
+#else
+#define WLAN_APP_MAX_APS     64
 #define WLAN_APP_MAX_DEVICES 64
+#endif
 #define WLAN_APP_SSID_MAX 33
 #define WLAN_APP_PASSWORD_MAX 65
 #define WLAN_APP_HOSTNAME_MAX 32
@@ -235,6 +243,23 @@ struct WlanApp {
     WlanSdUpdate* sd_update;
     View* view_sd_update;
 };
+
+/** Allocate the optional credential capture buffers only when MiTM is used.
+ *  Keeping these buffers out of the normal startup path leaves a contiguous
+ *  internal-RAM block for the ESP32 WiFi driver. */
+bool wlan_app_ensure_cred_sniff(WlanApp* app);
+
+/** Reserve the main app state before qFlipper starts screen streaming.
+ *
+ * On the classic ESP32 CYD the stream worker can fragment the last internal
+ * RAM blocks.  Keeping this allocation ready lets the Loader subsequently
+ * create the WiFi app task without either allocation starving the other.
+ */
+bool wlan_app_reserve_memory(void);
+
+/** Release the unused qFlipper WiFi app-state reserve. No effect while the
+ * WiFi app itself is running. */
+void wlan_app_release_reserved_memory(void);
 
 /** Schlüssel der aktuellen Picker-Assoziation: Channel-Key im Channel-Mode,
  *  sonst SSID des Targets/Connected-AP (oder leerer String). */

@@ -610,6 +610,7 @@ static void sd_update_task(void* arg) {
 
 WlanSdUpdate* wlan_sd_update_alloc(void) {
     WlanSdUpdate* u = malloc(sizeof(WlanSdUpdate));
+    if(!u) return NULL;
     u->task = NULL;
     u->phase = WlanSdUpdateIdle;
     u->percent = 0;

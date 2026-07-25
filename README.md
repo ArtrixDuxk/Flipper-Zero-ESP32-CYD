@@ -24,12 +24,15 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 | **LilyGo T-Embed CC1101** | ESP32-S3 (Xtensa LX7) | ST7789 320×170 | Rotary encoder + button | CC1101 | PN532 (I2C) | RMT TX + RX | SPI |
 | **Waveshare ESP32-C6-LCD-1.9** | ESP32-C6 (RISC-V) | ST7789V2 320×172 | CST816S touch | — | — | — | SPI |
 | **Waveshare ESP32-C6-LCD-1.47** ⚠️ | ESP32-C6 (RISC-V) | JD9853 320×172 | AXS5106L touch | — | — | — | SPI |
+| **ESP32-2432S028 CYD + NM-RF-HAT** ⚠️ | ESP32 (Xtensa LX6) | ILI9341 320×240 | XPT2046 touch | CC1101 (HAT) | PN532 (HAT) | TX+RX (HAT) | SPI (HAT TF) |
 | ** DIY ESP32-S3 with 2.8" TFT ** ⚠️| ESP32-S3 (Xtensa LX7) |2.8  ILI9341 320×240 | 6× Tactile buttons | CC1101 | PN532 (I2C) |  TX  | SPI |
 
 
 > ⚠️ **Waveshare ESP32-C6-LCD-1.47 — supported but barely usable.** The board builds, boots and the UI/touch work, but the ESP32-C6 has only **512 KB SRAM and no PSRAM**. RAM-heavy apps are effectively non-functional. In particular **WiFi**: a normal AP scan works, but **monitor mode / handshake capture fails** — by the time the app's buffers are allocated the WiFi driver can no longer allocate its DMA buffers (`esf_buf_setup_static: alloc eb fail` → `ESP_ERR_NO_MEM`), so no frames are received. Treat this board as usable only for lightweight apps until the WiFi app's memory footprint is reduced (it was designed for the PSRAM-equipped T-Embed).
 
 > ⚠️ ** DIY ESP32-S3 with 2.8" TFT ** - Currently supported via a fork pending full integration, work in progress, ready to flash bins also available in the discord, updated each release
+
+> ⚠️ **ESP32-2432S028 CYD + NM-RF-HAT — experimental.** Classic ESP32 (typically **4 MB flash, no PSRAM**). NM-RF-HAT uses a DIP switch so only **one** of CC1101 / nRF24 / PN532 / IR / RF433 is active at a time (shared IO22/IO27). Build with `./buildAndFlash_CYD.sh` or `./build.sh --board cyd`. Expect tighter RAM than T-Embed; WiFi monitor/handshake and heavy apps may need further cuts. USB-OTG (BadUSB USB / MSC / qFlipper) is **not** available — use BLE HID instead.
 
 ![img](pic2.jpg)
 
@@ -212,6 +215,10 @@ A complete starter kit is in [`sdcard.zip`](sdcard.zip) — extract it onto a FA
 # Waveshare ESP32-C6
 ./buildAndFlash_waveshare_c6_1.47.sh
 ./buildAndFlash_waveshare_c6_1.9.sh
+
+# ESP32-2432S028 CYD classic + NM-RF-HAT (ILI9341)
+./buildAndFlash_CYD.sh
+# or: ./build.sh --board cyd --build-only
 ```
 
 ### Build & Flash (Windows)

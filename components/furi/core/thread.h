@@ -161,6 +161,15 @@ FuriThread* furi_thread_alloc_ex(
     FuriThreadCallback callback,
     void* context);
 
+/** Same as furi_thread_alloc_ex(), but returns NULL when the control block or
+ * stack cannot be allocated instead of aborting. Use at user-facing launch
+ * boundaries where low memory must be recoverable. */
+FuriThread* furi_thread_try_alloc_ex(
+    const char* name,
+    uint32_t stack_size,
+    FuriThreadCallback callback,
+    void* context);
+
 /**
  * @brief Delete a FuriThread instance.
  *

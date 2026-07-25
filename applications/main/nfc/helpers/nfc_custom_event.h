@@ -39,4 +39,7 @@ typedef enum {
     NfcCustomEventChameleonConnected,
     NfcCustomEventChameleonFailed,
     NfcCustomEventChameleonCardRead,
+
+    /** Detect scene on-screen Back (GuiButtonTypeLeft) */
+    NfcCustomEventDetectBack,
 } NfcCustomEvent;

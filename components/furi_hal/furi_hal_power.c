@@ -281,8 +281,11 @@ static float furi_hal_power_get_estimated_battery_voltage(void) {
 void furi_hal_power_init(void) {
     furi_hal_power_ensure_initialized();
 
-    /* Initialize shared I2C bus for power ICs (BQ27220 + BQ25896) */
-#if defined(BOARD_PIN_QWIIC_SDA) && defined(BOARD_PIN_QWIIC_SCL)
+    /* Initialize shared I2C bus for power ICs (BQ27220 + BQ25896).
+     * Boards without Qwiic (e.g. CYD) skip this entirely — avoids noisy
+     * "i2c driver not installed" probes on every boot. */
+#if defined(BOARD_PIN_QWIIC_SDA) && defined(BOARD_PIN_QWIIC_SCL) && \
+    (BOARD_PIN_QWIIC_SDA != UINT16_MAX) && (BOARD_PIN_QWIIC_SCL != UINT16_MAX)
     {
         i2c_config_t conf = {
             .mode = I2C_MODE_MASTER,
@@ -300,13 +303,14 @@ void furi_hal_power_init(void) {
     }
 #endif
 
+#if defined(BOARD_PIN_QWIIC_SDA) && defined(BOARD_PIN_QWIIC_SCL) && \
+    (BOARD_PIN_QWIIC_SDA != UINT16_MAX) && (BOARD_PIN_QWIIC_SCL != UINT16_MAX)
     /* Allow power ICs to stabilize after PWR_EN and I2C bus init */
     vTaskDelay(pdMS_TO_TICKS(50));
 
     /* BQ27220 first (needs clean I2C bus), then BQ25896 */
     furi_hal_bq27220_init();
     furi_hal_bq25896_init();
-    furi_hal_power_refresh_sample();
     if(furi_hal_bq27220_is_present()) {
         ESP_LOGI(TAG, "Fuel gauge: BQ27220 (%umV, %u%%)",
             furi_hal_bq27220_get_voltage_mv(), furi_hal_bq27220_get_charge_pct());
@@ -315,6 +319,8 @@ void furi_hal_power_init(void) {
         ESP_LOGI(TAG, "Charger: BQ25896 (VBUS=%umV, VREG=%umV)",
             furi_hal_bq25896_get_vbus_voltage_mv(), furi_hal_bq25896_get_vreg_voltage_mv());
     }
+#endif
+    furi_hal_power_refresh_sample();
 }
 
 bool furi_hal_power_gauge_is_ok(void) {

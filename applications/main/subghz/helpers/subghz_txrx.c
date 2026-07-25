@@ -23,7 +23,17 @@ static void subghz_txrx_radio_device_power_off(SubGhzTxRx* instance) {
 }
 
 SubGhzTxRx* subghz_txrx_alloc(void) {
-    SubGhzTxRx* instance = malloc(sizeof(SubGhzTxRx));
+    SubGhzTxRx* instance = calloc(1, sizeof(SubGhzTxRx));
+    if(!instance) return NULL;
+
+    /* Reserve the time-critical worker before settings, protocol databases,
+     * and GUI models fragment the remaining heap. */
+    instance->worker = subghz_worker_alloc();
+    if(!instance->worker) {
+        free(instance);
+        return NULL;
+    }
+
     bool system_keystore_loaded = false;
     bool user_keystore_loaded = false;
 
@@ -39,7 +49,6 @@ SubGhzTxRx* subghz_txrx_alloc(void) {
     subghz_txrx_hopper_set_state(instance, SubGhzHopperStateOFF);
     subghz_txrx_set_debug_pin_state(instance, false);
 
-    instance->worker = subghz_worker_alloc();
     instance->fff_data = flipper_format_string_alloc();
 
     instance->environment = subghz_environment_alloc();
