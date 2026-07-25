@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Flipper CYD Web Flasher",
   description:
-    "Instale o Flipper Zero ESP32 Port na ESP32-2432S028 CYD diretamente pelo navegador.",
+    "Install the Flipper Zero ESP32 Port on an ESP32-2432S028 CYD directly from your browser.",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR">
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

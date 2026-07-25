@@ -17,17 +17,17 @@ export default function Home() {
         <div className="hero-copy">
           <p className="eyebrow">ESP32-2432S028 + NM-RF-HAT</p>
           <h1>
-            Grave o firmware.
+            Flash the firmware.
             <br />
-            <span>Sem terminal.</span>
+            <span>No terminal.</span>
           </h1>
           <p className="lede">
-            Conecte a CYD por USB, escolha a porta CH340 e instale o Flipper Zero
-            ESP32 Port diretamente pelo Chrome ou Edge.
+            Connect your CYD over USB, select its CH340 port, and install the
+            Flipper Zero ESP32 Port directly from Chrome or Edge.
           </p>
-          <div className="spec-row" aria-label="Especificações do pacote">
-            <span>ESP32 clássico</span>
-            <span>4 MB flash</span>
+          <div className="spec-row" aria-label="Firmware package specifications">
+            <span>Classic ESP32</span>
+            <span>4 MB Flash</span>
             <span>DIO · 40 MHz</span>
           </div>
         </div>
@@ -57,33 +57,33 @@ export default function Home() {
 
       <section className="guide" aria-labelledby="guide-title">
         <div>
-          <p className="section-number">02 / PREPARO</p>
-          <h2 id="guide-title">Antes de conectar</h2>
+          <p className="section-number">02 / PREPARE</p>
+          <h2 id="guide-title">Before you connect</h2>
         </div>
         <ol>
           <li>
-            <strong>Feche o qFlipper e o monitor serial.</strong>
-            <span>A porta USB precisa estar livre para o navegador.</span>
+            <strong>Close any serial monitor.</strong>
+            <span>The USB port must be available to your browser.</span>
           </li>
           <li>
-            <strong>Use um cabo USB de dados.</strong>
-            <span>Cabos somente de carga não mostram a porta CH340.</span>
+            <strong>Use a USB data cable.</strong>
+            <span>Charge-only cables will not expose the CH340 port.</span>
           </li>
           <li>
-            <strong>Não desconecte durante a gravação.</strong>
-            <span>O processo apaga e regrava bootloader, tabela e firmware.</span>
+            <strong>Do not disconnect while flashing.</strong>
+            <span>The process rewrites the bootloader, partition table, and firmware.</span>
           </li>
         </ol>
       </section>
 
       <footer>
-        <span>Flipper Zero ESP32 Port · CYD experimental</span>
+        <span>Flipper Zero ESP32 Port · Experimental CYD build</span>
         <a
           href="https://github.com/ArtrixDuxk/Flipper-Zero-ESP32-CYD"
           target="_blank"
           rel="noreferrer"
         >
-          Código-fonte ↗
+          Source code ↗
         </a>
       </footer>
     </main>

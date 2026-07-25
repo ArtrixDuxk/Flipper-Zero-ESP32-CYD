@@ -37,13 +37,13 @@ const SEGMENTS: Segment[] = firmwareManifest.parts.map((part) => ({
 }));
 
 const STATE_LABEL: Record<FlashState, string> = {
-  idle: "Pronto para conectar",
-  connecting: "Conectando ao ESP32…",
-  downloading: "Baixando e verificando firmware…",
-  erasing: "Apagando a memória flash…",
-  flashing: "Gravando firmware…",
-  done: "Instalação concluída",
-  error: "A instalação foi interrompida",
+  idle: "Ready to connect",
+  connecting: "Connecting to ESP32…",
+  downloading: "Downloading and verifying firmware…",
+  erasing: "Erasing flash memory…",
+  flashing: "Flashing firmware…",
+  done: "Installation complete",
+  error: "Installation interrupted",
 };
 
 async function sha256Hex(bytes: Uint8Array) {
@@ -57,7 +57,7 @@ export default function Flasher() {
   const [state, setState] = useState<FlashState>("idle");
   const [progress, setProgress] = useState(0);
   const [detail, setDetail] = useState(
-    `Firmware ${firmwareManifest.version} · pacote CYD`,
+    `Firmware ${firmwareManifest.version} · CYD package`,
   );
   const [logs, setLogs] = useState<string[]>([]);
   const [webSerialSupported, setWebSerialSupported] = useState<boolean | null>(null);
@@ -85,7 +85,7 @@ export default function Flasher() {
     setProgress(0);
     setLogs([]);
     setState("connecting");
-    setDetail("Selecione USB-SERIAL CH340 na janela do navegador");
+    setDetail("Select USB-SERIAL CH340 in the browser dialog");
 
     try {
       const serial = (
@@ -120,29 +120,29 @@ export default function Flasher() {
       });
 
       const chip = await loader.main();
-      log(`Chip detectado: ${chip}`);
-      setDetail(`${chip} conectado · preparando pacote`);
+      log(`Detected chip: ${chip}`);
+      setDetail(`${chip} connected · preparing package`);
       setState("downloading");
 
       const downloaded = await Promise.all(
         SEGMENTS.map(async (segment) => {
           const response = await fetch(segment.path, {cache: "no-store"});
           if (!response.ok) {
-            throw new Error(`Falha ao baixar ${segment.name} (${response.status})`);
+            throw new Error(`Failed to download ${segment.name} (${response.status})`);
           }
 
           const bytes = new Uint8Array(await response.arrayBuffer());
           if (bytes.byteLength !== segment.size) {
             throw new Error(
-              `${segment.name}: tamanho inválido (${bytes.byteLength}/${segment.size})`,
+              `${segment.name}: invalid size (${bytes.byteLength}/${segment.size})`,
             );
           }
 
           const digest = await sha256Hex(bytes);
           if (digest !== segment.sha256) {
-            throw new Error(`${segment.name}: checksum SHA-256 inválido`);
+            throw new Error(`${segment.name}: invalid SHA-256 checksum`);
           }
-          log(`${segment.name} verificado (${bytes.byteLength} bytes)`);
+          log(`${segment.name} verified (${bytes.byteLength} bytes)`);
 
           return {
             data: bytes,
@@ -152,11 +152,11 @@ export default function Flasher() {
       );
 
       setState("erasing");
-      setDetail("Apagando os 4 MB para uma instalação limpa");
+      setDetail("Erasing all 4 MB for a clean installation");
       await loader.eraseFlash();
 
       setState("flashing");
-      setDetail("Não remova o cabo USB");
+      setDetail("Do not unplug the USB cable");
 
       const completedByFile = new Array(SEGMENTS.length).fill(0);
       await loader.writeFlash({
@@ -179,18 +179,18 @@ export default function Flasher() {
       setProgress(100);
       setState("done");
       setDetail(
-        `Firmware ${firmwareManifest.version} instalado. A CYD irá reiniciar.`,
+        `Firmware ${firmwareManifest.version} installed. Your CYD will restart.`,
       );
-      log("Gravação concluída e verificada.");
+      log("Flash completed and verified.");
 
       await transport.disconnect();
       transportRef.current = null;
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Erro desconhecido durante a gravação";
+        error instanceof Error ? error.message : "Unknown error while flashing";
       setState("error");
       setDetail(message);
-      log(`ERRO: ${message}`);
+      log(`ERROR: ${message}`);
       try {
         await transportRef.current?.disconnect?.();
       } catch {
@@ -204,12 +204,12 @@ export default function Flasher() {
     <section className="flasher-section" aria-labelledby="flasher-title">
       <div className="flasher-heading">
         <div>
-          <p className="section-number">01 / INSTALAÇÃO</p>
+          <p className="section-number">01 / INSTALL</p>
           <h2 id="flasher-title">Web Flasher</h2>
         </div>
         <span className={`status-pill status-${state}`}>
           <i aria-hidden="true" />
-          {state === "done" ? "Finalizado" : busy ? "Em andamento" : "Online"}
+          {state === "done" ? "Complete" : busy ? "In progress" : "Online"}
         </span>
       </div>
 
@@ -240,27 +240,32 @@ export default function Flasher() {
           </div>
 
           {webSerialSupported === null ? (
-            <div className="browser-warning">Verificando suporte do navegador…</div>
+            <div className="browser-warning">Checking browser support…</div>
           ) : !webSerialSupported ? (
             <div className="browser-warning">
-              Web Serial não está disponível. Abra esta página no Chrome ou Edge
-              em um computador.
+              Web Serial is unavailable. Open this page in Chrome or Edge on a
+              desktop computer.
             </div>
           ) : (
             <button className="install-button" onClick={install} disabled={busy}>
-              <span>{busy ? "Instalando…" : state === "done" ? "Instalar novamente" : "Conectar e instalar"}</span>
+              <span>
+                {busy
+                  ? "Installing…"
+                  : state === "done"
+                    ? "Install again"
+                    : "Connect and install"}
+              </span>
               <b aria-hidden="true">→</b>
             </button>
           )}
 
           <p className="privacy-note">
-            A gravação acontece localmente. Nenhum dado da sua porta serial é enviado
-            ao servidor.
+            Flashing happens locally. No serial-port data is sent to the server.
           </p>
         </div>
 
         <aside className="flash-package">
-          <p>CONTEÚDO DO PACOTE</p>
+          <p>PACKAGE CONTENTS</p>
           {SEGMENTS.map((segment) => (
             <div className="package-row" key={segment.name}>
               <span>
@@ -271,7 +276,7 @@ export default function Flasher() {
             </div>
           ))}
           <div className="package-footer">
-            <span>Modo</span>
+            <span>Mode</span>
             <strong>DIO / 40 MHz</strong>
           </div>
         </aside>
@@ -279,7 +284,7 @@ export default function Flasher() {
 
       {logs.length > 0 && (
         <details className="flash-log">
-          <summary>Log técnico ({logs.length})</summary>
+          <summary>Technical log ({logs.length})</summary>
           <pre>{logs.join("\n")}</pre>
         </details>
       )}

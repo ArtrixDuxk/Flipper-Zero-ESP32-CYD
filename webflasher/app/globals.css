@@ -1,12 +1,14 @@
 :root {
-  --ink: #12100e;
-  --paper: #f4efe4;
+  color-scheme: dark;
+  --ink: #f5f1e8;
+  --paper: #08090a;
   --orange: #ff6a00;
-  --orange-dark: #d94c00;
-  --line: rgba(18, 16, 14, 0.18);
-  --muted: #706a62;
-  --panel: #fffbf2;
-  --green: #107c41;
+  --orange-dark: #ff8a38;
+  --line: rgba(245, 241, 232, 0.14);
+  --muted: #9b9891;
+  --panel: #121416;
+  --surface: #0d0f11;
+  --green: #35c477;
 }
 
 * {
@@ -21,8 +23,8 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    linear-gradient(rgba(18, 16, 14, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(18, 16, 14, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(245, 241, 232, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245, 241, 232, 0.035) 1px, transparent 1px),
     var(--paper);
   background-size: 30px 30px;
   font-family: Arial, Helvetica, sans-serif;
@@ -69,7 +71,7 @@ main {
   font-size: 12px;
   letter-spacing: 0.04em;
   transform: skew(-8deg);
-  box-shadow: 4px 4px 0 var(--ink);
+  box-shadow: 4px 4px 0 #000;
 }
 
 .build-tag,
@@ -121,7 +123,7 @@ h1 span {
 
 .lede {
   max-width: 650px;
-  color: #514c46;
+  color: #bbb7af;
   font-size: 19px;
   line-height: 1.65;
 }
@@ -136,7 +138,7 @@ h1 span {
 .spec-row span {
   border: 1px solid var(--ink);
   padding: 9px 12px;
-  background: rgba(255, 251, 242, 0.65);
+  background: rgba(18, 20, 22, 0.72);
   font: 700 11px "Courier New", monospace;
   text-transform: uppercase;
 }
@@ -172,7 +174,7 @@ h1 span {
   border-radius: 13px;
   box-shadow:
     15px 15px 0 var(--orange),
-    25px 25px 0 rgba(18, 16, 14, 0.12);
+    25px 25px 0 rgba(0, 0, 0, 0.5);
   transform: rotate(2.5deg);
 }
 
@@ -329,7 +331,7 @@ h2 {
   grid-template-columns: 1.5fr 0.7fr;
   background: var(--panel);
   border: 2px solid var(--ink);
-  box-shadow: 10px 10px 0 var(--ink);
+  box-shadow: 10px 10px 0 rgba(255, 106, 0, 0.28);
 }
 
 .flash-main {
@@ -370,7 +372,7 @@ h2 {
   height: 12px;
   margin-top: 42px;
   overflow: hidden;
-  background: #dbd4c8;
+  background: #292c2f;
   border: 1px solid var(--ink);
 }
 
@@ -399,8 +401,8 @@ h2 {
   padding: 0 24px;
   color: #fff;
   background: var(--orange);
-  border: 2px solid var(--ink);
-  box-shadow: 5px 5px 0 var(--ink);
+  border: 2px solid #ff9d59;
+  box-shadow: 5px 5px 0 #000;
   cursor: pointer;
   font-weight: 900;
   text-transform: uppercase;
@@ -413,7 +415,7 @@ h2 {
 .install-button:hover:not(:disabled) {
   background: var(--orange-dark);
   transform: translate(2px, 2px);
-  box-shadow: 3px 3px 0 var(--ink);
+  box-shadow: 3px 3px 0 #000;
 }
 
 .install-button:disabled {
@@ -435,16 +437,16 @@ h2 {
 .browser-warning {
   margin-top: 30px;
   padding: 18px;
-  color: #67150b;
-  background: #ffe1d5;
-  border: 1px solid #bb1e10;
+  color: #ffb7aa;
+  background: #35120e;
+  border: 1px solid #d84838;
   line-height: 1.5;
 }
 
 .flash-package {
   padding: 38px 30px;
   color: #f7f0e5;
-  background: var(--ink);
+  background: var(--surface);
 }
 
 .flash-package > p {
