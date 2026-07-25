@@ -26,9 +26,11 @@ const DISPLAY_NAMES: Record<string, string> = {
   firmware: "Firmware",
 };
 
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/$/, "") ?? "";
+
 const SEGMENTS: Segment[] = firmwareManifest.parts.map((part) => ({
   name: DISPLAY_NAMES[part.name] ?? part.name,
-  path: `/firmware/${part.path}`,
+  path: `${BASE_PATH}/firmware/${part.path}`,
   address: part.offset,
   size: part.size,
   sha256: part.sha256,

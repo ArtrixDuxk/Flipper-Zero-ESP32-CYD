@@ -30,10 +30,22 @@ npm run dev
 Open `http://localhost:3000`. Web Serial works on localhost and secure HTTPS
 origins. Close qFlipper and any serial monitor before selecting the CH340 port.
 
-## Validate a production build
+## Create the static production build
 
 ```bash
 npm run lint
 npm run build
-npm run build:cloudflare
 ```
+
+The deployable website is written to `out/`. Upload the contents of that
+directory to any HTTPS static host, such as Cloudflare Pages, Netlify, GitHub
+Pages or an ordinary web server. HTTPS (or localhost) is required by Web Serial.
+
+For a host that serves the site from a subdirectory, set the public base path
+while building. For example, GitHub Pages at `/Flipper-Zero-ESP32-CYD`:
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/Flipper-Zero-ESP32-CYD npm run build
+```
+
+For root-domain hosting, run `npm run build` without `NEXT_PUBLIC_BASE_PATH`.
