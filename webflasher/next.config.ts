@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   trailingSlash: true,
   basePath,
   assetPrefix: basePath || undefined,
+  turbopack: {
+    root: process.cwd(),
+  },
 };
 
 export default nextConfig;
