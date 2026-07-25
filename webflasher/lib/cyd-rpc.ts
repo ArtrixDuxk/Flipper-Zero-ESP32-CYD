@@ -4,6 +4,7 @@ const textDecoder = new TextDecoder();
 const RPC_START_ECHO = textEncoder.encode("start_rpc_session\r\n");
 const WRITE_CHUNK_SIZE = 512;
 const WRITE_CHUNKS_PER_PING = 8;
+const SERIAL_BOOT_SETTLE_MS = 2500;
 
 const MAIN_TAG = {
   empty: 4,
@@ -207,6 +208,9 @@ function statusError(status: number) {
   return new Error(STATUS_TEXT[status] ?? `RPC failed with status ${status}`);
 }
 
+const sleep = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 export class CydRpcClient {
   private readonly port: CydSerialPort;
   private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -227,14 +231,6 @@ export class CydRpcClient {
 
   static async connect(port: CydSerialPort) {
     await port.open({baudRate: 115200, bufferSize: 65536});
-    try {
-      await port.setSignals?.({
-        dataTerminalReady: false,
-        requestToSend: false,
-      });
-    } catch {
-      // Some Web Serial implementations do not expose modem control signals.
-    }
 
     if (!port.readable || !port.writable) {
       await port.close();
@@ -247,6 +243,13 @@ export class CydRpcClient {
       port.writable.getWriter(),
     );
     try {
+      /*
+       * Opening a CYD's CH340 can pulse EN through its auto-reset circuit.
+       * Starting the text handshake immediately loses the command in the ROM
+       * boot log, then each reconnect attempt pulses reset again. Leave modem
+       * control lines untouched and wait for the firmware/SD mount to settle.
+       */
+      await sleep(SERIAL_BOOT_SETTLE_MS);
       await client.startSession();
       client.sessionStarted = true;
       return client;

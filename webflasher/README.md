@@ -41,6 +41,10 @@ If the firmware is already installed, use **Install SD resources only** on the
 site. It opens the running firmware RPC and provisions the card without erasing
 or reflashing the ESP32.
 
+The CH340 can pulse the ESP32 auto-reset circuit when its serial port opens.
+The RPC client therefore leaves DTR/RTS untouched and waits for the firmware
+and SD mount to finish before sending the session handshake.
+
 ## Run locally
 
 ```bash

@@ -10,7 +10,7 @@ export default function Home() {
           </span>
           <span>Flipper ESP32</span>
         </a>
-        <span className="build-tag">WEB FLASHER · v2 · SD INSTALLER</span>
+        <span className="build-tag">WEB FLASHER · v2.1 · SD INSTALLER</span>
       </header>
 
       <section className="hero" id="top">
