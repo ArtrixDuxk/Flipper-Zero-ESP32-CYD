@@ -161,10 +161,10 @@ mJS-based JavaScript runtime for user scripts in `/ext/apps/Scripts/*.js`.
 ### 🎮 Games
 
 #### Snake Game
-Jogo leve incluído no projeto. A compatibilidade com os controles por toque da CYD ainda precisa ser testada na placa.
+Lightweight game included in the project. CYD touch-control compatibility still needs testing on hardware.
 
-#### Não suportados na CYD
-Doom e Wolf3D não fazem parte do alvo CYD. Eles dependem de mais flash e PSRAM do que a ESP32-2432S028 normalmente oferece.
+#### Not supported on CYD
+Doom and Wolf3D are not part of the CYD target. They require more flash and PSRAM than the ESP32-2432S028 normally provides.
 
 ### ⚙ Settings & General
 Bluetooth, backlight, clock, dolphin/passport, expansion port, input, notification, power, storage, system info, factory reset. Animated dolphin desktop on idle. File-pack manifest at `/ext/Manifest` (qFlipper-style asset list — its presence suppresses the "No DB" boot animation).
