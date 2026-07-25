@@ -9,6 +9,8 @@
   --panel: #121416;
   --surface: #0d0f11;
   --green: #35c477;
+  --red: #ff5147;
+  --yellow: #ffc247;
 }
 
 * {
@@ -85,6 +87,42 @@ main {
 .build-tag {
   color: var(--muted);
   font-size: 12px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.github-star {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid #5a5650;
+  font: 700 10px "Courier New", monospace;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.github-star span {
+  color: var(--yellow);
+  font-size: 16px;
+}
+
+.github-star:hover {
+  color: #fff;
+  border-color: var(--yellow);
+  transform: translateY(-2px);
 }
 
 .hero {
@@ -261,6 +299,59 @@ h1 span {
   background: #b7afa2;
   border: 4px solid #0b0a09;
   transform: translateX(-50%);
+}
+
+.compatibility-alert {
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: 48px 1fr 24px;
+  align-items: center;
+  gap: 20px;
+  margin-top: 28px;
+  padding: 18px 24px;
+  color: var(--ink);
+  background: #241210;
+  border: 1px solid var(--red);
+  text-decoration: none;
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.compatibility-alert:hover {
+  background: #301613;
+  transform: translateY(-2px);
+}
+
+.compatibility-alert > span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: #fff;
+  background: var(--red);
+  font-size: 25px;
+  font-weight: 900;
+}
+
+.compatibility-alert strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #ff8b84;
+  font: 700 12px "Courier New", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compatibility-alert p {
+  margin: 0;
+  color: #cfbab6;
+  line-height: 1.45;
+}
+
+.compatibility-alert > b {
+  color: var(--red);
+  font-size: 24px;
 }
 
 .flasher-section {
@@ -686,6 +777,104 @@ h2 {
   line-height: 1.5;
 }
 
+.compatibility {
+  padding: 95px 0;
+  border-bottom: 1px solid var(--line);
+  scroll-margin-top: 24px;
+}
+
+.compatibility-heading {
+  display: grid;
+  grid-template-columns: 1fr 0.85fr;
+  align-items: end;
+  gap: 70px;
+  margin-bottom: 42px;
+}
+
+.compatibility-heading > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.support-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.support-card {
+  min-height: 285px;
+  padding: 27px 25px;
+  background: rgba(13, 15, 17, 0.9);
+  border: 1px solid var(--line);
+  border-top-width: 4px;
+}
+
+.support-card > span {
+  display: inline-block;
+  margin-bottom: 24px;
+  padding: 6px 8px;
+  font: 700 10px "Courier New", monospace;
+  letter-spacing: 0.08em;
+}
+
+.support-card h3 {
+  margin-bottom: 20px;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.support-card ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.support-card li {
+  margin-top: 10px;
+  padding-left: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.support-unavailable {
+  border-top-color: var(--red);
+}
+
+.support-unavailable > span {
+  color: #ffaaa5;
+  background: #351512;
+}
+
+.support-required {
+  border-top-color: #b77cff;
+}
+
+.support-required > span {
+  color: #d8baff;
+  background: #28183c;
+}
+
+.support-experimental {
+  border-top-color: var(--yellow);
+}
+
+.support-experimental > span {
+  color: #ffd98d;
+  background: #362a11;
+}
+
+.support-limited {
+  border-top-color: var(--orange);
+}
+
+.support-limited > span {
+  color: #ffb784;
+  background: #351c0c;
+}
+
 footer {
   min-height: 110px;
   display: flex;
@@ -720,9 +909,14 @@ footer a {
 
   .flasher-heading,
   .sd-guide-heading,
+  .compatibility-heading,
   .guide {
     grid-template-columns: 1fr;
     gap: 28px;
+  }
+
+  .support-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .sd-steps {
@@ -755,6 +949,12 @@ footer a {
     display: none;
   }
 
+  .github-star {
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 9px;
+  }
+
   h1 {
     font-size: 54px;
   }
@@ -779,8 +979,32 @@ footer a {
 
   .flasher-section,
   .sd-guide,
+  .compatibility,
   .guide {
     padding: 70px 0;
+  }
+
+  .compatibility-alert {
+    grid-template-columns: 42px 1fr;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .compatibility-alert > span {
+    width: 40px;
+    height: 40px;
+  }
+
+  .compatibility-alert > b {
+    display: none;
+  }
+
+  .support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .support-card {
+    min-height: auto;
   }
 
   .sd-steps {

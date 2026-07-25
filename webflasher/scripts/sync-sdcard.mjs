@@ -161,6 +161,29 @@ function createZip(entries, unixTimestamp) {
   return Buffer.concat([...localParts, centralDirectory, end]);
 }
 
+async function selectGeneratedAt(files, directories) {
+  const sourceDateEpoch = Number.parseInt(process.env.SOURCE_DATE_EPOCH ?? "", 10);
+  if (Number.isSafeInteger(sourceDateEpoch) && sourceDateEpoch > 0) {
+    return sourceDateEpoch;
+  }
+
+  try {
+    const previous = JSON.parse(await readFile(manifestPath, "utf8"));
+    const previousFiles = previous.files.filter((file) => file.path !== "Manifest");
+    if (
+      JSON.stringify(previousFiles) === JSON.stringify(files) &&
+      JSON.stringify(previous.directories) === JSON.stringify(directories) &&
+      Number.isSafeInteger(previous.generatedAt)
+    ) {
+      return previous.generatedAt;
+    }
+  } catch {
+    // A missing or invalid previous manifest means this is a fresh package.
+  }
+
+  return Math.floor(Date.now() / 1000);
+}
+
 const stagingRoot = await mkdtemp(path.join(tmpdir(), "flipper-cyd-sd-"));
 
 try {
@@ -188,13 +211,6 @@ try {
     return depth || a.localeCompare(b);
   });
 
-  const generatedAt = Math.floor(Date.now() / 1000);
-  const deviceManifestLines = [
-    "V:0",
-    `T:${generatedAt}`,
-    ...sortedDirectories.map((directory) => `D:${directory}`),
-  ];
-
   const files = [];
   const archiveFiles = [];
   for (const {absolute, relative} of resourceFiles) {
@@ -202,10 +218,20 @@ try {
     const info = await stat(absolute);
     const md5 = createHash("md5").update(data).digest("hex");
     const sha256 = createHash("sha256").update(data).digest("hex");
-    deviceManifestLines.push(`F:${md5}:${info.size}:${relative}`);
     files.push({path: relative, size: info.size, md5, sha256});
     archiveFiles.push({name: relative, data, directory: false});
   }
+
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  archiveFiles.sort((a, b) => a.name.localeCompare(b.name));
+
+  const generatedAt = await selectGeneratedAt(files, sortedDirectories);
+  const deviceManifestLines = [
+    "V:0",
+    `T:${generatedAt}`,
+    ...sortedDirectories.map((directory) => `D:${directory}`),
+    ...files.map((file) => `F:${file.md5}:${file.size}:${file.path}`),
+  ];
 
   const deviceManifest = Buffer.from(`${deviceManifestLines.join("\n")}\n`);
   files.push({
@@ -215,17 +241,6 @@ try {
     sha256: createHash("sha256").update(deviceManifest).digest("hex"),
   });
   archiveFiles.push({name: "Manifest", data: deviceManifest, directory: false});
-
-  files.sort((a, b) => {
-    if (a.path === "Manifest") return 1;
-    if (b.path === "Manifest") return -1;
-    return a.path.localeCompare(b.path);
-  });
-  archiveFiles.sort((a, b) => {
-    if (a.name === "Manifest") return 1;
-    if (b.name === "Manifest") return -1;
-    return a.name.localeCompare(b.name);
-  });
 
   const manifest = {
     name: "Flipper Zero ESP32 Port — CYD SD resources",
