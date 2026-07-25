@@ -3,13 +3,13 @@
 >
 > A firmware build distributed under the name **"L15Dev" / "Bitwire"** has been reported to contain **malware (a virus) and a backdoor**. **Do not download, flash, or run it under any circumstances.**
 >
-> Only use the official builds from this repository / the [web flasher](https://sor3nt.github.io/interface.html). If you already flashed an "L15Dev" image, re-flash a clean official build and treat any credentials/data on the device (WiFi passwords, captures) as compromised.
+> Do not treat this fork as an official source for the original project. Build it yourself or use releases published by this repository. If you already flashed an "L15Dev" image, re-flash known-good firmware and treat any credentials/data on the device (WiFi passwords, captures) as compromised.
 
 > WARNING: I do not take responsibility if you damage your board or property. This guide is for educational purposes only — proceed at your own risk.
 
-# Flipper Zero ESP32 Port
+# Flipper Zero ESP32 — CYD + NM-RF-HAT
 
-A port of the [Flipper Zero](https://flipperzero.one/) firmware to ESP32-based development boards. This project brings the Flipper Zero UI, services, and application framework to affordable ESP32 hardware — no Flipper Zero required.
+Fork of [Sor3nt/Flipper-Zero-ESP32-Port](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port), focused on the ESP32-2432S028 CYD with the NM-RF-HAT. The CYD target is experimental.
 
 ## Discord
 
@@ -36,13 +36,9 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 
 ![img](pic2.jpg)
 
-## How to Flash
+## Flashing
 
-The easiest way is the **web flasher** — no toolchain required, just a Chrome/Edge browser and a USB cable:
-
-**[Flash via Browser](https://sor3nt.github.io/interface.html)**
-
-Connect your board, click flash, done. After flashing, copy the contents of [`https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v1.1.5/sdcard.zip`](sdcard/) onto a FAT32 SD card and insert it — most apps need files there to function.
+There are no prebuilt images or web flasher for this fork yet. Build locally with the CYD command in [Building](#building).
 
 ## Apps
 
@@ -194,7 +190,7 @@ Bluetooth, backlight, clock, dolphin/passport, expansion port, input, notificati
 | `/ext/wifi/evil_portal/login_template/` | Custom captive-portal templates (no verify) |
 | `/ext/wifi/evil_portal/router_template/` | Custom captive-portal templates (with WLAN verify) |
 
-A complete starter kit is in [`sdcard.zip`](sdcard.zip) — extract it onto a FAT32 SD.
+This fork does not bundle an SD-card starter pack yet.
 
 ## Building
 
