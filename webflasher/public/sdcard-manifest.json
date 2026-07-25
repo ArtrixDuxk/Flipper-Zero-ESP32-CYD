@@ -1,0 +1,404 @@
+{
+  "name": "Flipper Zero ESP32 Port — CYD SD resources",
+  "version": "1.0.0",
+  "generatedAt": 1784997391,
+  "targetRoot": "/ext",
+  "totalSize": 1032617,
+  "directories": [
+    "apps",
+    "apps_data",
+    "badusb",
+    "dolphin",
+    "infrared",
+    "lfrfid",
+    "nfc",
+    "subghz",
+    "u2f",
+    "wifi",
+    "apps/Scripts",
+    "badusb/assets",
+    "infrared/assets",
+    "lfrfid/assets",
+    "nfc/assets",
+    "subghz/assets",
+    "u2f/assets",
+    "wifi/evil_portal",
+    "badusb/assets/layouts",
+    "wifi/evil_portal/login_template",
+    "wifi/evil_portal/router_template"
+  ],
+  "files": [
+    {
+      "path": "badusb/assets/layouts/ba-BA.kl",
+      "size": 256,
+      "md5": "5eea27975bd81d2c1ca2570b7c29e034",
+      "sha256": "7dcd8ce62fc6313cf95f8125e27edf5a5102277828e8b61ca755710c26379296"
+    },
+    {
+      "path": "badusb/assets/layouts/colemak.kl",
+      "size": 256,
+      "md5": "4babc92d049ec9a3d43fdee68d9b8716",
+      "sha256": "18c531baabb1107ae37e2d582185af7f21ca2acc15326d05b0fefe2918d09d8b"
+    },
+    {
+      "path": "badusb/assets/layouts/cz_CS.kl",
+      "size": 256,
+      "md5": "c0f0de4e255b56c410c43fb0b3b561d3",
+      "sha256": "2ce05c15e4ab242b8d9d061aff746b09ff3487991369dfe7955e78d685940f27"
+    },
+    {
+      "path": "badusb/assets/layouts/da-DA.kl",
+      "size": 256,
+      "md5": "1139810f61ec7f8c8fe0398d92578b31",
+      "sha256": "36eaf505bf8ffad3ab2ff80eddc0bc5f0376e5abb590d2f4218ec2c3e22f28e4"
+    },
+    {
+      "path": "badusb/assets/layouts/de-CH.kl",
+      "size": 256,
+      "md5": "13504463372b269bd102c68725921d90",
+      "sha256": "061d540117f2743d6c216ad6833b5a09c59ad124ddb9ac29fdbb1161f4aa5913"
+    },
+    {
+      "path": "badusb/assets/layouts/de-DE-mac.kl",
+      "size": 256,
+      "md5": "6d465383de3b14d282f9e3d02f1c3038",
+      "sha256": "65c29ce3185e2808394d8ead55808437f18fc4220418b60e7d225911d8bda8d1"
+    },
+    {
+      "path": "badusb/assets/layouts/de-DE.kl",
+      "size": 256,
+      "md5": "f392e25a23f50691b5a37e67845dec76",
+      "sha256": "c98c41000dc731eee58b9e3827b794c33ef980045e72b53171ede53f3d044027"
+    },
+    {
+      "path": "badusb/assets/layouts/dvorak.kl",
+      "size": 256,
+      "md5": "3ebf32c26e9fc2fea04e54e0a871a04d",
+      "sha256": "7b45fa55c3b91956681543bb25adb347d8d15c45a213fe9c0a163cbdf9ea5835"
+    },
+    {
+      "path": "badusb/assets/layouts/en-UK.kl",
+      "size": 256,
+      "md5": "f81bb6483d684619dcfca99b3a876a8b",
+      "sha256": "2fbb1e7f3e144050339157d989e03f12e734e2defdedded28dfd7f9a2b6c903c"
+    },
+    {
+      "path": "badusb/assets/layouts/en-US.kl",
+      "size": 256,
+      "md5": "19885317532889775ea80dbd9da7ae28",
+      "sha256": "6d0b0855dd2556cf5025b5d7e02658c7b3008650e3f37027e0565434fb09fb1a"
+    },
+    {
+      "path": "badusb/assets/layouts/es-ES.kl",
+      "size": 256,
+      "md5": "0dc2c0ddd692efb3a319d430206daac6",
+      "sha256": "4686f6675df95f7ae41ab077fc3b49485bc0b187c41a6b12ad9d45267f22dbee"
+    },
+    {
+      "path": "badusb/assets/layouts/es-LA.kl",
+      "size": 256,
+      "md5": "2ccd5cce5afd9dad86bdff71649d4613",
+      "sha256": "403b54262d83dd82b8b6cacd6db30c442f4925d95fe1ba6a609b7a24285c871b"
+    },
+    {
+      "path": "badusb/assets/layouts/fi-FI.kl",
+      "size": 256,
+      "md5": "b62d559209e0d450b4d77f76e29ec1be",
+      "sha256": "08c59809c80c5edd57ebc2b920d9e233aac3728bdfb903ad13a75fbcc7b869c0"
+    },
+    {
+      "path": "badusb/assets/layouts/fr-BE.kl",
+      "size": 256,
+      "md5": "d301c08df0fc3e1ddc0e015cff6066ee",
+      "sha256": "c5f19b1997490c14c14be5570ae1c16f47b457e61bd8e3762e72de7e48d8a24c"
+    },
+    {
+      "path": "badusb/assets/layouts/fr-CA.kl",
+      "size": 256,
+      "md5": "c7de997974013616f40de0dc415a684c",
+      "sha256": "b9393c59c43fe334055ded04dcc6b6451f853d2cd5bedba24fab6e604f2fadd7"
+    },
+    {
+      "path": "badusb/assets/layouts/fr-CH.kl",
+      "size": 256,
+      "md5": "13504463372b269bd102c68725921d90",
+      "sha256": "061d540117f2743d6c216ad6833b5a09c59ad124ddb9ac29fdbb1161f4aa5913"
+    },
+    {
+      "path": "badusb/assets/layouts/fr-FR-mac.kl",
+      "size": 256,
+      "md5": "ee2775889abce181307815bd224562a8",
+      "sha256": "9e13a3dfe8b57967a0f3ca3c44e3d2c552ce1e7913a3a4693bc360f4fe1994be"
+    },
+    {
+      "path": "badusb/assets/layouts/fr-FR.kl",
+      "size": 256,
+      "md5": "4535dd8ef77ff9fc03f1d669af68fa5d",
+      "sha256": "fe7fbf0fbc8004669b5eabe5d40772ddb3b3c130d0ed6b34d8ce49d7ff976832"
+    },
+    {
+      "path": "badusb/assets/layouts/hr-HR.kl",
+      "size": 256,
+      "md5": "5eea27975bd81d2c1ca2570b7c29e034",
+      "sha256": "7dcd8ce62fc6313cf95f8125e27edf5a5102277828e8b61ca755710c26379296"
+    },
+    {
+      "path": "badusb/assets/layouts/hu-HU.kl",
+      "size": 256,
+      "md5": "0d971f10fc8f3d373604f3b19ebf9251",
+      "sha256": "e9279f998aab99b52ef4f5f3a3873fdf1e142342f7a7f05e807137463ea844ac"
+    },
+    {
+      "path": "badusb/assets/layouts/it-IT-mac.kl",
+      "size": 256,
+      "md5": "f9a9699e0a04c4555c292079475e95e7",
+      "sha256": "bad5c0fc1c8c3bad6ab1f83039db0c262d3eb48fcef04cb57b83a4d6656ef514"
+    },
+    {
+      "path": "badusb/assets/layouts/it-IT.kl",
+      "size": 256,
+      "md5": "66564950e0bbfb4cc1d847ce3ab28b24",
+      "sha256": "9f2a76917e1a01c89b6d444c01f69a869c20309f906bbc007290c859485decb6"
+    },
+    {
+      "path": "badusb/assets/layouts/nb-NO.kl",
+      "size": 256,
+      "md5": "c483a982ba54265a9c7b0a144b491520",
+      "sha256": "2c43912d3ed1fca6e63553abb92ae7c0639d549b443227ca6ed69ffc809c7b09"
+    },
+    {
+      "path": "badusb/assets/layouts/nl-NL.kl",
+      "size": 256,
+      "md5": "fe381203fa06318e0dc05c8c2efdc609",
+      "sha256": "89af0fb75cf0557c759912c1f918da320ddbbd5b87f97d921971b1bed77807e4"
+    },
+    {
+      "path": "badusb/assets/layouts/pt-BR.kl",
+      "size": 256,
+      "md5": "e29d0228ddc4f0e06dd98f9ee3f2a408",
+      "sha256": "bc48a1c74c314c1b3d051af40d64b3b37cc2710cf9be768a53c44a59673fd89c"
+    },
+    {
+      "path": "badusb/assets/layouts/pt-PT.kl",
+      "size": 256,
+      "md5": "d939c563da44f227786350b6e467c155",
+      "sha256": "3a7f2d4d9f3cf8f1a7c701772869a0e7c6ca3e4809322b31bbd02af6b01c3c18"
+    },
+    {
+      "path": "badusb/assets/layouts/si-SI.kl",
+      "size": 256,
+      "md5": "5eea27975bd81d2c1ca2570b7c29e034",
+      "sha256": "7dcd8ce62fc6313cf95f8125e27edf5a5102277828e8b61ca755710c26379296"
+    },
+    {
+      "path": "badusb/assets/layouts/sk-SK.kl",
+      "size": 256,
+      "md5": "6461e0e3897f295d59efecd70ca3a294",
+      "sha256": "8f4f0341f1b115e3ae0af94693e6ea407253ba2fde3830006860b4a225edb907"
+    },
+    {
+      "path": "badusb/assets/layouts/sv-SE.kl",
+      "size": 256,
+      "md5": "b62d559209e0d450b4d77f76e29ec1be",
+      "sha256": "08c59809c80c5edd57ebc2b920d9e233aac3728bdfb903ad13a75fbcc7b869c0"
+    },
+    {
+      "path": "badusb/assets/layouts/tr-TR.kl",
+      "size": 256,
+      "md5": "1e5d47f3eac53ed8cca23894456cd544",
+      "sha256": "3ef4e699c88b632089a7b522896dc66abad62616e0c8d2e9a50363b2ce108bf9"
+    },
+    {
+      "path": "badusb/demo_chromeos.txt",
+      "size": 1715,
+      "md5": "5b81cd1048ff4468baa90d41a720ee93",
+      "sha256": "91c18560d306828b8c7c876cd10f298b24862b8473a15562d3628d3a0699362f"
+    },
+    {
+      "path": "badusb/demo_gnome.txt",
+      "size": 2077,
+      "md5": "562660522f17ea2d27cf7f74db247a2a",
+      "sha256": "d2c6fccec7e3c53244db3efa99c00f8fc2ada2965ea00586ec215410ca86e2a6"
+    },
+    {
+      "path": "badusb/demo_macos.txt",
+      "size": 1636,
+      "md5": "8cb7851792ea00af54169c7baa6c205a",
+      "sha256": "b73d95aa7fd185de2f70fbd212fee6c637a23cc7fcef5e65281af666d421f93e"
+    },
+    {
+      "path": "badusb/demo_windows.txt",
+      "size": 1717,
+      "md5": "a04e9f4ddbcf609f447ecf84cdeccc12",
+      "sha256": "62fc2fe8d9fb1326ef718305b27827814df0e89f0e652dab7759708bd6b48733"
+    },
+    {
+      "path": "badusb/Install_qFlipper_gnome.txt",
+      "size": 2125,
+      "md5": "891d3729e8ba4b79918cb72a15d3f8fa",
+      "sha256": "3fe936b2b24703ebe41288099b2ccbd2950f344cbb2705ad87e934dcfe9acb7e"
+    },
+    {
+      "path": "badusb/Install_qFlipper_macOS.txt",
+      "size": 848,
+      "md5": "ba8e156671211429a1e3da55acc01ea0",
+      "sha256": "b561b3b89ef5a9b88389466cbe486a989894052d2f01c2b60b2bd012d9547d28"
+    },
+    {
+      "path": "badusb/Install_qFlipper_windows.txt",
+      "size": 1189,
+      "md5": "07e8a99df14f42fda7d286657352aed9",
+      "sha256": "e6c369f6c6304c4a41646798494be5b3f43e1c99aaaeeab701b8956caa006898"
+    },
+    {
+      "path": "badusb/test_mouse.txt",
+      "size": 628,
+      "md5": "84ed67c06035d84e67651c896cff8a94",
+      "sha256": "dded095b85e93b4ed9756d9fc31b97dfbd9eb975d7577019d9352d2129fa32ad"
+    },
+    {
+      "path": "infrared/assets/ac.ir",
+      "size": 202376,
+      "md5": "7a32edeccabacaf10091c17708a5a0cd",
+      "sha256": "4696f6192bfc85e3084fede1b06c0149b53395db350c633633ff3971fb983e49"
+    },
+    {
+      "path": "infrared/assets/audio.ir",
+      "size": 158667,
+      "md5": "ff58d42f780752b615285c30dc755a03",
+      "sha256": "a9e1d692db2699580f2162ae773f6011cc89c66a63e189cf2f37973cef62c805"
+    },
+    {
+      "path": "infrared/assets/fans.ir",
+      "size": 257266,
+      "md5": "eab2f85912a1b918bcce7483b63370a5",
+      "sha256": "42f7169ebba1a2426abb6c4f51645c9908ad3c10c7cebd777e4bcc58a41285fa"
+    },
+    {
+      "path": "infrared/assets/leds.ir",
+      "size": 128128,
+      "md5": "5dbf313e3a8a2aba6a1abdb901f34294",
+      "sha256": "efabb4e2106f46835cb7c8e22daa2e0b2e9f6c57927595a4e8c0789bfd0fd8f4"
+    },
+    {
+      "path": "infrared/assets/projectors.ir",
+      "size": 59908,
+      "md5": "05aad244d2674fd100c14390410da261",
+      "sha256": "5ddc8a9b31953795e88de1e7dce208ef7dc1303d99b31a5bf46e58bd6cac94b3"
+    },
+    {
+      "path": "infrared/assets/tv.ir",
+      "size": 99445,
+      "md5": "493b242931be1ebb6cc36ed18a53ab73",
+      "sha256": "1974b20f6a15365e5994263a440e4a946d7c8885b2444c9987ffb899a4cb6076"
+    },
+    {
+      "path": "lfrfid/assets/iso3166.lfrfid",
+      "size": 6677,
+      "md5": "9b0a0b044d65a6d68a1229cbf76d9b76",
+      "sha256": "f4cdb38ff95116124410ddf84114bd28be06e8660aef88d41aed7a915d49b4f1"
+    },
+    {
+      "path": "nfc/assets/aid.nfc",
+      "size": 4742,
+      "md5": "81dc04c7b181f94b644079a71476dff4",
+      "sha256": "9cd88b3df4a7390053e658db2609fb9613ea1b73da6c80a57aa96617f09cb2ae"
+    },
+    {
+      "path": "nfc/assets/country_code.nfc",
+      "size": 2565,
+      "md5": "86efbebdf41bb6bf15cc51ef88f069d5",
+      "sha256": "76cccd8380a4ec6925e4cfd6e2b296f1bf657d4b65199485f4c968d679a203ef"
+    },
+    {
+      "path": "nfc/assets/currency_code.nfc",
+      "size": 1757,
+      "md5": "41b4f08774249014cb8d3dffa5f5c07d",
+      "sha256": "e4af9e853a630250444a26ea50ea60fbd2d0a448cbce0dd9532a2ac00348af06"
+    },
+    {
+      "path": "nfc/assets/mf_classic_dict.nfc",
+      "size": 67254,
+      "md5": "7b14ba8d1a04f23e093bc0e85d754632",
+      "sha256": "f540bf7ae9c359f46eb93e257587554a54e80f5a9961693a9a645c2401d9c64a"
+    },
+    {
+      "path": "nfc/assets/mf_ultralight_c_dict.nfc",
+      "size": 1931,
+      "md5": "f844327d022d908896c33dcf246beab9",
+      "sha256": "2bed938b7d160ead22511a066ab52c64f24211b8ad0d1cf00d4ed01cae8cab6f"
+    },
+    {
+      "path": "nfc/assets/skylanders.nfc",
+      "size": 4389,
+      "md5": "aeb44ab98f97953cc93d4e6b668fa3c3",
+      "sha256": "0791c8aeccdb76b633d91ea9d9defa00092de6d7eac278ff2945d0899a3ca62c"
+    },
+    {
+      "path": "nfc/assets/vendors.nfc",
+      "size": 3752,
+      "md5": "d309deff31d39091a437676fd2db1810",
+      "sha256": "0cd4753f93c88e2b04c3d9d641de88a68d225db1cc944a71069a07689525e1f3"
+    },
+    {
+      "path": "subghz/assets/alutech_at_4n",
+      "size": 202,
+      "md5": "da7ba34bec9e7a2a53c830282bb07616",
+      "sha256": "3907e229d482ed61fc6597fffe01bd58b70ac81da40939f41c066023d468bd16"
+    },
+    {
+      "path": "subghz/assets/dangerous_settings",
+      "size": 286,
+      "md5": "50cf77ba8b935ee6cb3b6f111cf2d93d",
+      "sha256": "d4815df9dce734d10eedcf28590c8e9a5fc68ae25c3019c9677f79b8976779b8"
+    },
+    {
+      "path": "subghz/assets/keeloq_mfcodes",
+      "size": 4824,
+      "md5": "ff17384813a981ca27dc55d3e2a2b219",
+      "sha256": "5d92e70cd93f77c4844415e75c3d1136b7edffa6b01e0c2a0be6ad73c6222aa0"
+    },
+    {
+      "path": "subghz/assets/keeloq_mfcodes_user",
+      "size": 723,
+      "md5": "ceaf7a02a1e096a04727bda49dceabed",
+      "sha256": "b159fb489770f3e15cfe005a3195fdd5c7ccae1163cbf2ecad6cc3aa915c3a91"
+    },
+    {
+      "path": "subghz/assets/keeloq_mfcodes_user.example",
+      "size": 723,
+      "md5": "ceaf7a02a1e096a04727bda49dceabed",
+      "sha256": "b159fb489770f3e15cfe005a3195fdd5c7ccae1163cbf2ecad6cc3aa915c3a91"
+    },
+    {
+      "path": "subghz/assets/nice_flor_s",
+      "size": 202,
+      "md5": "653bd8d349055a41e1152e557d4a52d3",
+      "sha256": "9d13f0405d7b484fda9bb30b73dc369382294e951720379f9f39801260f9ce6d"
+    },
+    {
+      "path": "subghz/assets/setting_user.example",
+      "size": 2019,
+      "md5": "6cbb74753e0b20f903e0fd7940227279",
+      "sha256": "515645ebdc4f4e437263e13b5cb2e36a221b0cf80eb5781ca1bbaa68b14baf6a"
+    },
+    {
+      "path": "u2f/assets/cert_key.u2f",
+      "size": 264,
+      "md5": "f60b88c20ed479ed9684e249f7134618",
+      "sha256": "9eadb4088b517fc1f24514bbee2105414747509155e622dcf979fcb37bde73ae"
+    },
+    {
+      "path": "u2f/assets/cert.der",
+      "size": 365,
+      "md5": "7e11e688e39034bbb9d88410044795e1",
+      "sha256": "6cfb7adf2808b887c7e04afb96242e904f28f940993a4fb1ad07150f327d9ffe"
+    },
+    {
+      "path": "Manifest",
+      "size": 4537,
+      "md5": "ab40fb75a8a959766f62b645b3839aea",
+      "sha256": "db3201598a3e466c54439a90642374660383a75655f10436ef7e7c4cf1f43d71"
+    }
+  ]
+}

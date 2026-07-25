@@ -1,12 +1,15 @@
 # Flipper CYD Web Flasher
 
-Web Serial installer for the `esp32_cyd_nm_rf_hat` firmware target.
+Web Serial installer for the `esp32_cyd_nm_rf_hat` firmware target. The same
+one-click flow flashes the ESP32, reconnects to the running firmware RPC and
+installs the required starter resources on the microSD card.
 
 ## Requirements
 
 - Node.js 20 or newer
 - A completed CYD firmware build in `../build_cyd`
 - Chrome or Edge for Web Serial
+- A FAT32-formatted microSD card inserted in the CYD
 
 ## Update the bundled firmware
 
@@ -19,6 +22,20 @@ npm run sync-firmware -- 1.4.3
 The sync script copies the bootloader, partition table and application binary,
 then regenerates `public/firmware/manifest.json` with their sizes, offsets and
 SHA-256 checksums.
+
+## Update the bundled SD starter pack
+
+From this directory:
+
+```bash
+npm run sync-sdcard
+```
+
+The sync script collects the firmware-owned BadUSB, Infrared, LF-RFID, NFC,
+Sub-GHz and U2F resources, creates the standard `/ext` folder structure and
+generates both a qFlipper-compatible `/ext/Manifest` and a browser manifest
+with SHA-256 and MD5 checksums. The web installer verifies downloads before
+flashing and verifies every copied SD file through the CYD RPC afterward.
 
 ## Run locally
 

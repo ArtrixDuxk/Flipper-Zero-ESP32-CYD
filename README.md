@@ -189,7 +189,11 @@ Bluetooth, backlight, clock, dolphin/passport, expansion port, input, notificati
 | `/ext/wifi/evil_portal/login_template/` | Custom captive-portal templates (no verify) |
 | `/ext/wifi/evil_portal/router_template/` | Custom captive-portal templates (with WLAN verify) |
 
-This fork does not bundle an SD-card starter pack yet.
+The `webflasher/` site bundles a starter pack for these standard resource
+directories. Its one-click install flashes the CYD, reconnects through the
+firmware RPC, writes the starter files to a FAT32 microSD card and verifies
+each file by MD5. Rebuild the bundle after changing resource files with
+`cd webflasher && npm run sync-sdcard`.
 
 ## Building
 

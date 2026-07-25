@@ -2,6 +2,8 @@
 
 import {useEffect, useMemo, useRef, useState} from "react";
 import firmwareManifest from "../public/firmware/manifest.json";
+import sdcardManifest from "../public/sdcard-manifest.json";
+import {CydRpcClient, type CydSerialPort} from "../lib/cyd-rpc";
 
 type FlashState =
   | "idle"
@@ -9,6 +11,9 @@ type FlashState =
   | "downloading"
   | "erasing"
   | "flashing"
+  | "restarting"
+  | "resources"
+  | "verifying"
   | "done"
   | "error";
 
@@ -17,6 +22,13 @@ type Segment = {
   path: string;
   address: number;
   size: number;
+  sha256: string;
+};
+
+type SdResource = {
+  path: string;
+  size: number;
+  md5: string;
   sha256: string;
 };
 
@@ -36,21 +48,56 @@ const SEGMENTS: Segment[] = firmwareManifest.parts.map((part) => ({
   sha256: part.sha256,
 }));
 
+const SD_RESOURCES: SdResource[] = sdcardManifest.files;
+const FIRMWARE_PROGRESS = 65;
+const RESOURCE_PROGRESS = 30;
+const VERIFY_PROGRESS = 5;
+const SD_FREE_SPACE_MARGIN = 64 * 1024;
+
 const STATE_LABEL: Record<FlashState, string> = {
   idle: "Ready to connect",
   connecting: "Connecting to ESP32…",
-  downloading: "Downloading and verifying firmware…",
+  downloading: "Verifying the installation package…",
   erasing: "Erasing flash memory…",
   flashing: "Flashing firmware…",
+  restarting: "Starting the installed firmware…",
+  resources: "Installing SD card resources…",
+  verifying: "Verifying SD card resources…",
   done: "Installation complete",
   error: "Installation interrupted",
 };
+
+const sleep = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function sha256Hex(bytes: Uint8Array) {
   const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes).buffer);
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function connectRpcWithRetry(
+  port: CydSerialPort,
+  onRetry: (attempt: number) => void,
+) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      return await CydRpcClient.connect(port);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 4) {
+        onRetry(attempt + 1);
+        await sleep(1200);
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Could not reconnect to the installed CYD firmware");
 }
 
 export default function Flasher() {
@@ -70,6 +117,7 @@ export default function Flasher() {
     () => SEGMENTS.reduce((sum, segment) => sum + segment.size, 0),
     [],
   );
+  const packageBytes = totalBytes + sdcardManifest.totalSize;
 
   useEffect(() => {
     setWebSerialSupported("serial" in navigator);
@@ -87,18 +135,21 @@ export default function Flasher() {
     setState("connecting");
     setDetail("Select USB-SERIAL CH340 in the browser dialog");
 
+    let firmwareFlashed = false;
+    let rpc: CydRpcClient | null = null;
+
     try {
       const serial = (
         navigator as Navigator & {
           serial: {
             requestPort(options?: {
               filters?: {usbVendorId?: number; usbProductId?: number}[];
-            }): Promise<unknown>;
+            }): Promise<CydSerialPort>;
           };
         }
       ).serial;
 
-      const port = await serial.requestPort({
+      const port: CydSerialPort = await serial.requestPort({
         filters: [{usbVendorId: 0x1a86, usbProductId: 0x7523}],
       });
 
@@ -124,7 +175,7 @@ export default function Flasher() {
       setDetail(`${chip} connected · preparing package`);
       setState("downloading");
 
-      const downloaded = await Promise.all(
+      const downloadedFirmware = await Promise.all(
         SEGMENTS.map(async (segment) => {
           const response = await fetch(segment.path, {cache: "no-store"});
           if (!response.ok) {
@@ -151,6 +202,35 @@ export default function Flasher() {
         }),
       );
 
+      const downloadedResources = await Promise.all(
+        SD_RESOURCES.map(async (resource) => {
+          const resourceUrl = `${BASE_PATH}/sdcard/${resource.path}`;
+          const response = await fetch(resourceUrl, {cache: "no-store"});
+          if (!response.ok) {
+            throw new Error(
+              `Failed to download SD resource ${resource.path} (${response.status})`,
+            );
+          }
+
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (bytes.byteLength !== resource.size) {
+            throw new Error(
+              `${resource.path}: invalid size (${bytes.byteLength}/${resource.size})`,
+            );
+          }
+
+          const digest = await sha256Hex(bytes);
+          if (digest !== resource.sha256) {
+            throw new Error(`${resource.path}: invalid SHA-256 checksum`);
+          }
+
+          return {...resource, data: bytes};
+        }),
+      );
+      log(
+        `SD starter pack verified (${SD_RESOURCES.length} files, ${sdcardManifest.totalSize} bytes)`,
+      );
+
       setState("erasing");
       setDetail("Erasing all 4 MB for a clean installation");
       await loader.eraseFlash();
@@ -160,7 +240,7 @@ export default function Flasher() {
 
       const completedByFile = new Array(SEGMENTS.length).fill(0);
       await loader.writeFlash({
-        fileArray: downloaded,
+        fileArray: downloadedFirmware,
         flashSize: "4MB",
         flashMode: "dio",
         flashFreq: "40m",
@@ -172,25 +252,107 @@ export default function Flasher() {
             (sum: number, value: number) => sum + value,
             0,
           );
-          setProgress(Math.min(100, Math.round((completed / totalBytes) * 100)));
+          setProgress(
+            Math.min(
+              FIRMWARE_PROGRESS,
+              Math.round((completed / totalBytes) * FIRMWARE_PROGRESS),
+            ),
+          );
         },
       });
+      firmwareFlashed = true;
+      setProgress(FIRMWARE_PROGRESS);
+      log("Firmware flash completed and verified.");
+
+      setState("restarting");
+      setDetail("Rebooting the CYD and opening its storage RPC");
+      await loader.after("hard_reset");
+      await transport.disconnect();
+      transportRef.current = null;
+      await sleep(2800);
+
+      rpc = await connectRpcWithRetry(port, (attempt) => {
+        log(`CYD RPC not ready; reconnect attempt ${attempt}/4`);
+      });
+      const storage = await rpc.storageInfo();
+      if (storage.free < sdcardManifest.totalSize + SD_FREE_SPACE_MARGIN) {
+        throw new Error(
+          `Not enough free space on the SD card (${storage.free} bytes available)`,
+        );
+      }
+      log(
+        `SD card ready (${storage.free} bytes free of ${storage.total} bytes)`,
+      );
+
+      setState("resources");
+      setDetail(
+        `Creating folders and copying ${SD_RESOURCES.length} required files`,
+      );
+      for (const directory of sdcardManifest.directories) {
+        await rpc.mkdir(`${sdcardManifest.targetRoot}/${directory}`);
+      }
+
+      let completedResourceBytes = 0;
+      for (const resource of downloadedResources) {
+        const devicePath = `${sdcardManifest.targetRoot}/${resource.path}`;
+        await rpc.writeFile(devicePath, resource.data, (written) => {
+          const ratio =
+            (completedResourceBytes + written) / sdcardManifest.totalSize;
+          setProgress(
+            FIRMWARE_PROGRESS +
+              Math.min(
+                RESOURCE_PROGRESS,
+                Math.round(ratio * RESOURCE_PROGRESS),
+              ),
+          );
+        });
+        completedResourceBytes += resource.size;
+        log(`Copied ${devicePath}`);
+      }
+
+      setProgress(FIRMWARE_PROGRESS + RESOURCE_PROGRESS);
+      setState("verifying");
+      setDetail("Checking every installed file against its MD5 checksum");
+      for (let index = 0; index < downloadedResources.length; index += 1) {
+        const resource = downloadedResources[index];
+        const devicePath = `${sdcardManifest.targetRoot}/${resource.path}`;
+        const deviceMd5 = (await rpc.md5(devicePath)).toLowerCase();
+        if (deviceMd5 !== resource.md5) {
+          throw new Error(
+            `${resource.path}: SD verification failed (${deviceMd5 || "no checksum"})`,
+          );
+        }
+        setProgress(
+          FIRMWARE_PROGRESS +
+            RESOURCE_PROGRESS +
+            Math.round(((index + 1) / downloadedResources.length) * VERIFY_PROGRESS),
+        );
+      }
+
+      await rpc.close();
+      rpc = null;
 
       setProgress(100);
       setState("done");
       setDetail(
-        `Firmware ${firmwareManifest.version} installed. Your CYD will restart.`,
+        `Firmware ${firmwareManifest.version} and ${SD_RESOURCES.length} SD resources installed.`,
       );
-      log("Flash completed and verified.");
-
-      await transport.disconnect();
-      transportRef.current = null;
+      log("Firmware and SD starter pack installation completed successfully.");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown error while flashing";
       setState("error");
-      setDetail(message);
+      setDetail(
+        firmwareFlashed
+          ? `Firmware installed, but SD setup failed: ${message}`
+          : message,
+      );
       log(`ERROR: ${message}`);
+      try {
+        await rpc?.close();
+      } catch {
+        // The serial stream may already have closed after an RPC failure.
+      }
       try {
         await transportRef.current?.disconnect?.();
       } catch {
@@ -236,7 +398,7 @@ export default function Flasher() {
           </div>
           <div className="progress-meta">
             <span>{progress}%</span>
-            <span>{(totalBytes / 1024 / 1024).toFixed(2)} MB</span>
+            <span>{(packageBytes / 1024 / 1024).toFixed(2)} MB</span>
           </div>
 
           {webSerialSupported === null ? (
@@ -260,7 +422,8 @@ export default function Flasher() {
           )}
 
           <p className="privacy-note">
-            Flashing happens locally. No serial-port data is sent to the server.
+            Firmware and SD resources are transferred locally. No serial-port
+            data is sent to the server.
           </p>
         </div>
 
@@ -275,9 +438,16 @@ export default function Flasher() {
               <code>0x{segment.address.toString(16).toUpperCase()}</code>
             </div>
           ))}
+          <div className="package-row">
+            <span>
+              <i />
+              SD starter pack
+            </span>
+            <code>{SD_RESOURCES.length} FILES</code>
+          </div>
           <div className="package-footer">
             <span>Mode</span>
-            <strong>DIO / 40 MHz</strong>
+            <strong>FLASH + FAT32 SD</strong>
           </div>
         </aside>
       </div>

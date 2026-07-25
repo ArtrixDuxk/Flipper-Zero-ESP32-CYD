@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "tsc --noEmit",
-    "sync-firmware": "node scripts/sync-firmware.mjs"
+    "sync-firmware": "node scripts/sync-firmware.mjs",
+    "sync-sdcard": "node scripts/sync-sdcard.mjs"
   },
   "dependencies": {
     "esptool-js": "0.6.0",

@@ -23,7 +23,8 @@ export default function Home() {
           </h1>
           <p className="lede">
             Connect your CYD over USB, select its CH340 port, and install the
-            Flipper Zero ESP32 Port directly from Chrome or Edge.
+            Flipper Zero ESP32 Port plus its required SD card resources directly
+            from Chrome or Edge.
           </p>
           <div className="spec-row" aria-label="Firmware package specifications">
             <span>Classic ESP32</span>
@@ -62,16 +63,16 @@ export default function Home() {
         </div>
         <ol>
           <li>
+            <strong>Insert a FAT32 microSD card.</strong>
+            <span>The installer writes the required resource pack after flashing.</span>
+          </li>
+          <li>
             <strong>Close any serial monitor.</strong>
             <span>The USB port must be available to your browser.</span>
           </li>
           <li>
-            <strong>Use a USB data cable.</strong>
-            <span>Charge-only cables will not expose the CH340 port.</span>
-          </li>
-          <li>
-            <strong>Do not disconnect while flashing.</strong>
-            <span>The process rewrites the bootloader, partition table, and firmware.</span>
+            <strong>Use a USB data cable and keep it connected.</strong>
+            <span>The process flashes the board, restarts it, and provisions the SD card.</span>
           </li>
         </ol>
       </section>
